@@ -51,7 +51,7 @@ npx vsce publish                # publica la versión de package.json
 Alternativa sin CLI: en https://marketplace.visualstudio.com/manage, botón **New extension → Visual Studio Code** y sube el `.vsix` a mano.
 
 La extensión tarda unos minutos en aparecer y pasar la validación automática. Quedará en
-`https://marketplace.visualstudio.com/items?itemName=perkybeet.devpulse`.
+`https://marketplace.visualstudio.com/items?itemName=perkybeet.devpulse-metrics`.
 
 ## 5. Actualizaciones futuras
 
