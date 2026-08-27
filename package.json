@@ -1,0 +1,147 @@
+{
+  "name": "devpulse",
+  "displayName": "DevPulse — Tiempo y métricas por proyecto",
+  "description": "Registro automático de horas por proyecto: medias diarias, semanales y mensuales, líneas añadidas y eliminadas, tiempo en primer plano, sesiones, lenguajes y exportación a Excel.",
+  "version": "1.0.0",
+  "publisher": "perkybeet",
+  "author": "Yago López <yago.lopez.adeje@gmail.com>",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Perkybeet/devpulse.git"
+  },
+  "homepage": "https://bitbeet.dev",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "time tracker",
+    "horas",
+    "productividad",
+    "metricas",
+    "excel",
+    "informes"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "devpulse.showDashboard",
+        "title": "Abrir panel de métricas",
+        "category": "DevPulse"
+      },
+      {
+        "command": "devpulse.exportExcel",
+        "title": "Exportar informe a Excel (.xlsx)",
+        "category": "DevPulse"
+      },
+      {
+        "command": "devpulse.exportCsv",
+        "title": "Exportar datos a CSV",
+        "category": "DevPulse"
+      },
+      {
+        "command": "devpulse.exportJson",
+        "title": "Exportar datos a JSON",
+        "category": "DevPulse"
+      },
+      {
+        "command": "devpulse.verifyExport",
+        "title": "Verificar una exportación firmada",
+        "category": "DevPulse"
+      },
+      {
+        "command": "devpulse.showKeyFingerprint",
+        "title": "Mostrar huella de la clave de firma",
+        "category": "DevPulse"
+      },
+      {
+        "command": "devpulse.openDataFolder",
+        "title": "Abrir carpeta de datos",
+        "category": "DevPulse"
+      },
+      {
+        "command": "devpulse.resetData",
+        "title": "Restablecer datos (con copia de seguridad)",
+        "category": "DevPulse"
+      }
+    ],
+    "configuration": {
+      "title": "DevPulse",
+      "properties": {
+        "devpulse.idleTimeoutSeconds": {
+          "type": "number",
+          "default": 120,
+          "minimum": 30,
+          "description": "Segundos sin interacción a partir de los cuales el tiempo deja de contar como activo."
+        },
+        "devpulse.sessionGapSeconds": {
+          "type": "number",
+          "default": 600,
+          "minimum": 60,
+          "description": "Pausa máxima (en segundos) entre interacciones para que dos bloques de trabajo cuenten como la misma sesión."
+        },
+        "devpulse.backgroundGraceSeconds": {
+          "type": "number",
+          "default": 1800,
+          "minimum": 0,
+          "description": "Tiempo máximo (en segundos) que se sigue contabilizando como segundo plano tras perder el foco de la ventana."
+        },
+        "devpulse.tickSeconds": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 60,
+          "description": "Frecuencia interna de muestreo en segundos. No suele ser necesario cambiarla."
+        },
+        "devpulse.hourlyRate": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Tarifa por hora para estimar el coste en los informes. Con 0 no se calcula coste."
+        },
+        "devpulse.currency": {
+          "type": "string",
+          "default": "EUR",
+          "description": "Moneda usada en las columnas de coste de los informes."
+        },
+        "devpulse.excludedProjects": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Nombres de carpetas de proyecto que no se deben registrar."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "bundle": "node esbuild.js",
+    "build": "npm run compile && npm run bundle",
+    "test": "npm run build && mocha \"out/test/**/*.test.js\"",
+    "vscode:prepublish": "node esbuild.js --production",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.17.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.1",
+    "esbuild": "^0.24.2",
+    "mocha": "^10.8.2",
+    "typescript": "^5.7.2"
+  }
+}

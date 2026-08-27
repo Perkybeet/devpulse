@@ -1,0 +1,13 @@
+src/**
+out/**
+node_modules/**
+scripts/**
+docs/**
+PUBLICAR.md
+media/publisher-logo-128.png
+esbuild.js
+tsconfig.json
+.gitignore
+.mocharc.json
+**/*.map
+*.vsix
