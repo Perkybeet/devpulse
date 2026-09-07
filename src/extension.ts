@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as os from 'os';
@@ -45,6 +46,21 @@ function readConfig(): DevPulseConfig {
   };
 }
 
+/**
+ * Identificador estable de esta ventana de VS Code. Los trabajadores suelen
+ * tener una ventana abierta por proyecto y todas comparten el mismo
+ * directorio de datos, así que cada una necesita su propia partición.
+ */
+function instanceIdFor(context: vscode.ExtensionContext): string {
+  const KEY = 'devpulse.instanceId';
+  let id = context.workspaceState.get<string>(KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    void context.workspaceState.update(KEY, id);
+  }
+  return id;
+}
+
 let deactivateHook: (() => Promise<void>) | undefined;
 
 export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
@@ -65,7 +81,7 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
 
   const dataDir = path.join(context.globalStorageUri.fsPath, 'data');
   fs.mkdirSync(dataDir, { recursive: true });
-  const storage = new StatsStorage(dataDir);
+  const storage = new StatsStorage(dataDir, instanceIdFor(context));
   const statusBar = new StatusBar();
   context.subscriptions.push(statusBar);
 
@@ -194,7 +210,7 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
       `$(watch) ${fmtHM(todayProj)}`,
       [
         proj ? `**${proj.name}** hoy: ${fmtHM(todayProj)}` : 'Sin proyecto activo',
-        `Hoy (todos los proyectos): ${fmtHM(todayAll)}`,
+        `Hoy (esta ventana): ${fmtHM(todayAll)}`,
         `Esta semana: ${fmtHM(weekSecs)} · Este mes: ${fmtHM(monthSecs)}`,
         'Clic para abrir el panel de DevPulse',
       ].join('\n\n')

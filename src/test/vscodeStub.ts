@@ -140,10 +140,21 @@ export function createVscodeStub(opts: StubOptions): any {
   return stub;
 }
 
-export function makeContext(storagePath: string): any {
+export function makeContext(storagePath: string, instanceId?: string): any {
+  const memoria = new Map<string, unknown>();
+  if (instanceId) {
+    memoria.set('devpulse.instanceId', instanceId);
+  }
   return {
     subscriptions: [] as { dispose(): unknown }[],
     globalStorageUri: { fsPath: storagePath },
+    workspaceState: {
+      get: (k: string, def?: unknown) => memoria.get(k) ?? def,
+      update: (k: string, v: unknown) => {
+        memoria.set(k, v);
+        return Promise.resolve();
+      },
+    },
   };
 }
 

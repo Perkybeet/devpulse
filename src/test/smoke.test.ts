@@ -8,6 +8,23 @@ import { createVscodeStub, installStub, makeContext } from './vscodeStub';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Recoge todos los días de todas las particiones de ventana. */
+function leerDias(dataDir: string): any[] {
+  const salida: any[] = [];
+  const visitar = (dir: string): void => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        visitar(p);
+      } else if (/^\d{4}-\d{2}\.json$/.test(e.name)) {
+        salida.push(...Object.values(JSON.parse(fs.readFileSync(p, 'utf8')).days));
+      }
+    }
+  };
+  visitar(dataDir);
+  return salida;
+}
+
 describe('extensión empaquetada (humo)', function () {
   let restore: (() => void) | undefined;
   let tmp: string;
@@ -55,11 +72,8 @@ describe('extensión empaquetada (humo)', function () {
     }
     await api.flush();
 
-    const files = fs.readdirSync(api.dataDir).filter((f: string) => /^\d{4}-\d{2}\.json$/.test(f));
-    assert.ok(files.length >= 1, 'debe existir al menos un fichero mensual');
-    const days: any[] = files.flatMap((f: string) =>
-      Object.values(JSON.parse(fs.readFileSync(path.join(api.dataDir, f), 'utf8')).days)
-    );
+    const days: any[] = leerDias(api.dataDir);
+    assert.ok(days.length >= 1, 'debe haber al menos un día registrado');
     const totalActive = days.reduce((a, d) => a + d.activeSeconds, 0);
     assert.ok(totalActive >= 55, `esperaba >= 55 s activos, hay ${totalActive}`);
     const tsSecs = days.reduce((a, d) => a + (d.languages.typescript ?? 0), 0);
@@ -82,10 +96,7 @@ describe('extensión empaquetada (humo)', function () {
     await sleep(100);
     await api.flush();
 
-    const files = fs.readdirSync(api.dataDir).filter((f: string) => /^\d{4}-\d{2}\.json$/.test(f));
-    const days: any[] = files.flatMap((f: string) =>
-      Object.values(JSON.parse(fs.readFileSync(path.join(api.dataDir, f), 'utf8')).days)
-    );
+    const days: any[] = leerDias(api.dataDir);
     const added = days.reduce((a, d) => a + d.linesAdded, 0);
     const deleted = days.reduce((a, d) => a + d.linesDeleted, 0);
     const saves = days.reduce((a, d) => a + d.saves, 0);
