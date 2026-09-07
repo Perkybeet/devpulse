@@ -111,6 +111,44 @@ describe('exportExcel', () => {
     assert.ok(values.includes('abc123'));
   });
 
+  it('sin tarifa no aparece ninguna columna de coste en ninguna hoja', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'devpulse-xlsx-'));
+    const file = path.join(dir, 'informe.xlsx');
+    await exportExcel(fixture(), file, {
+      hourlyRate: 0,
+      currency: 'EUR',
+      today: '2026-08-27',
+      generatedAt: Date.UTC(2026, 7, 27, 12, 0),
+    });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(file);
+    for (const name of ['Proyectos', 'Diario', 'Semanal', 'Mensual']) {
+      const header = (wb.getWorksheet(name)!.getRow(1).values as (string | undefined)[]) ?? [];
+      const conCoste = header.filter((h) => typeof h === 'string' && h.includes('Coste'));
+      assert.deepStrictEqual(conCoste, [], `la hoja ${name} no debe tener columna de coste`);
+    }
+  });
+
+  it('con tarifa sí aparece la columna de coste', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'devpulse-xlsx-'));
+    const file = path.join(dir, 'informe.xlsx');
+    await exportExcel(fixture(), file, {
+      hourlyRate: 45,
+      currency: 'EUR',
+      today: '2026-08-27',
+      generatedAt: Date.UTC(2026, 7, 27, 12, 0),
+    });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(file);
+    for (const name of ['Proyectos', 'Diario', 'Semanal', 'Mensual']) {
+      const header = (wb.getWorksheet(name)!.getRow(1).values as (string | undefined)[]) ?? [];
+      assert.ok(
+        header.some((h) => typeof h === 'string' && h.includes('Coste')),
+        `la hoja ${name} debe tener columna de coste`
+      );
+    }
+  });
+
   it('sin tarifa no añade la fila de coste al resumen', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'devpulse-xlsx-'));
     const file = path.join(dir, 'informe.xlsx');

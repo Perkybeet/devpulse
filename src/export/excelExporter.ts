@@ -56,6 +56,11 @@ function localTimeOf(ms: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+/** La columna de coste solo se incluye si hay una tarifa configurada. */
+function costColumn(opts: ExportOptions, width: number): Partial<ExcelJS.Column>[] {
+  return opts.hourlyRate > 0 ? [{ header: `Coste (${opts.currency})`, key: 'cost', width }] : [];
+}
+
 function styleHeader(ws: ExcelJS.Worksheet): void {
   const row = ws.getRow(1);
   row.font = { bold: true, color: { argb: 'FFFFFFFF' } };
@@ -175,7 +180,7 @@ function buildProyectos(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOpti
     { header: 'Netas', key: 'net', width: 10 },
     { header: 'Archivos', key: 'files', width: 10 },
     { header: 'Ratio foco (%)', key: 'focus', width: 14 },
-    { header: `Coste (${opts.currency})`, key: 'cost', width: 14 },
+    ...costColumn(opts, 14),
   ];
   const byProject = groupRows(rows, (r) => r.projectPath);
   const entries = [...byProject.entries()].sort((a, b) => {
@@ -205,7 +210,9 @@ function buildProyectos(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOpti
   setColFmt(ws, ['hours', 'fg', 'bg', 'avg'], '0.00');
   setColFmt(ws, ['dur'], DUR_FMT);
   setColFmt(ws, ['focus'], '0.0');
-  setColFmt(ws, ['cost'], '#,##0.00');
+  if (opts.hourlyRate > 0) {
+    setColFmt(ws, ['cost'], '#,##0.00');
+  }
   styleHeader(ws);
 }
 
@@ -225,7 +232,7 @@ function buildDiario(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOptions
     { header: 'Guardados', key: 'saves', width: 11 },
     { header: 'Archivos', key: 'files', width: 10 },
     { header: 'Sesiones', key: 'sessions', width: 10 },
-    { header: `Coste (${opts.currency})`, key: 'cost', width: 13 },
+    ...costColumn(opts, 13),
   ];
   for (const r of rows) {
     ws.addRow({
@@ -247,7 +254,9 @@ function buildDiario(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOptions
   }
   setColFmt(ws, ['hours'], '0.00');
   setColFmt(ws, ['dur', 'fg', 'bg'], DUR_FMT);
-  setColFmt(ws, ['cost'], '#,##0.00');
+  if (opts.hourlyRate > 0) {
+    setColFmt(ws, ['cost'], '#,##0.00');
+  }
   styleHeader(ws);
 }
 
@@ -271,7 +280,7 @@ function buildAgrupado(
     { header: 'Líneas -', key: 'deleted', width: 10 },
     { header: 'Netas', key: 'net', width: 9 },
     { header: 'Sesiones', key: 'sessions', width: 10 },
-    { header: `Coste (${opts.currency})`, key: 'cost', width: 13 },
+    ...costColumn(opts, 13),
   ];
   const grouped = groupRows(rows, (r) => `${periodOf(r)}::${r.projectPath}`);
   const keys = [...grouped.keys()].sort();
@@ -294,7 +303,9 @@ function buildAgrupado(
   }
   setColFmt(ws, ['hours', 'avg'], '0.00');
   setColFmt(ws, ['dur'], DUR_FMT);
-  setColFmt(ws, ['cost'], '#,##0.00');
+  if (opts.hourlyRate > 0) {
+    setColFmt(ws, ['cost'], '#,##0.00');
+  }
   styleHeader(ws);
 }
 

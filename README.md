@@ -34,9 +34,17 @@ Cada exportación se firma con una clave **Ed25519** generada en la instalación
 
 1. Junto al informe se crea un fichero `*.firma.json` con los datos canónicos, el hash SHA-256 del contenido y del propio fichero exportado, y la firma.
 2. El administrador verifica cualquier informe con **DevPulse: Verificar una exportación firmada**. Si el Excel, el CSV o la firma se tocaron después de generarse, la verificación falla e indica el motivo.
-3. Cada desarrollador comunica una única vez su huella de clave (**DevPulse: Mostrar huella de la clave de firma**). La huella aparece en cada firma y en la hoja Verificación del Excel, lo que permite atribuir cada informe a la instalación que lo emitió y detectar re-firmados con otra clave.
+3. Cada desarrollador comunica una única vez su huella de clave (**DevPulse: Mostrar huella de la clave de firma**). La huella aparece en cada firma y en la hoja Verificación del Excel, lo que permite atribuir cada informe a la instalación que lo emitió.
 
-Alcance de la garantía: la firma hace **detectable cualquier manipulación posterior a la exportación** y vincula el informe a una instalación concreta. Como en cualquier sistema de registro en el equipo del usuario, la fiabilidad del dato en origen depende de esa instalación; la huella registrada es lo que impide sustituir la clave sin que se note.
+### Qué garantiza la firma y qué no
+
+Conviene ser preciso, porque de ello depende el uso que tenga sentido dar a los informes.
+
+**Sí garantiza** que el informe recibido es byte a byte el que salió de la extensión. Detecta que alguien abra el Excel y cambie 4 horas por 8, que se retoque el CSV en el camino o que se altere el propio fichero de firma. También vincula el informe a una instalación concreta a través de la huella.
+
+**No garantiza** que los datos fueran ciertos en el momento de generarse. La extensión se ejecuta en el equipo del desarrollador, con sus datos en un JSON local y su clave privada en su disco: quien controla la máquina puede editar el registro antes de exportar, o firmar un informe fabricado con su propia clave, y en ambos casos la verificación resultará válida. Esto no es un defecto de la implementación, sino el límite de cualquier registro que se ejecute íntegramente en el equipo medido.
+
+En consecuencia, DevPulse está pensado como **herramienta de medición y reporte**, útil para conocer la dedicación real y para impedir la manipulación del informe una vez emitido. Si se necesita un registro resistente a la manipulación del propio usuario medido, los datos deben enviarse en continuo a un servidor bajo control de la organización, que sea quien selle el tiempo y emita los informes.
 
 ## Privacidad
 

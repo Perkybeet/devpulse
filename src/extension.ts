@@ -228,9 +228,6 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
       entry.secs += r.activeSeconds;
       byPath.set(r.projectPath, entry);
     }
-    if (byPath.size <= 1) {
-      return rows;
-    }
     const items = [...byPath.entries()]
       .sort((a, b) => b[1].secs - a[1].secs)
       .map(([projectPath, e]) => ({
