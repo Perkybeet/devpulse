@@ -16,6 +16,9 @@ import { exportExcel } from './export/excelExporter';
 import { DashboardPanel } from './ui/dashboard';
 import { fmtHM } from './ui/format';
 import { StatusBar } from './ui/statusBar';
+import { Clasificacion, ProjectClassifier } from './sync/classifier';
+import { Outbox } from './sync/outbox';
+import { enviarLatido } from './sync/uploader';
 
 interface DevPulseConfig {
   idleTimeoutSeconds: number;
@@ -34,6 +37,9 @@ export interface TestApi {
   noteActivity(nowMs: number): void;
   flush(): Promise<void>;
   dataDir: string;
+  sincronizar(silencioso?: boolean): Promise<void>;
+  classifier: ProjectClassifier;
+  outbox: Outbox;
 }
 
 function readConfig(): DevPulseConfig {
@@ -83,6 +89,19 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
     trackerOpts.maxTickGapSec = Math.max(30, config.tickSeconds * 3);
   };
   const tracker = new ActivityTracker(trackerOpts);
+
+  const VERSION = (context.extension?.packageJSON?.version as string) ?? '0.0.0';
+  const CLAVE_SERVIDOR = 'devpulse.serverUrl';
+  const CLAVE_TOKEN = 'devpulse.serverToken';
+  const CLAVE_OUTBOX = 'devpulse.outbox';
+  const CLAVE_PROYECTOS = 'devpulse.projectClassification';
+
+  const classifier = new ProjectClassifier({
+    leer: () => context.globalState.get<Record<string, Clasificacion>>(CLAVE_PROYECTOS, {}),
+    guardar: (v) => void context.globalState.update(CLAVE_PROYECTOS, v),
+  });
+  const outbox = new Outbox();
+  outbox.cargar(context.globalState.get(CLAVE_OUTBOX));
 
   const dataDir = path.join(context.globalStorageUri.fsPath, 'data');
   fs.mkdirSync(dataDir, { recursive: true });
@@ -234,6 +253,17 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
           if (acc.closedSession) {
             d.sessions.push(acc.closedSession);
           }
+        });
+      }
+      if (proj && acc.activeSec + acc.foregroundSec + acc.backgroundSec > 0 && classifier.seEnvia(proj.path)) {
+        outbox.anotarMinuto({
+          minute: Math.floor(nowMs / 60000),
+          projectPath: proj.path,
+          projectName: proj.name,
+          date: localDateOf(nowMs),
+          a: acc.activeSec,
+          f: acc.foregroundSec,
+          b: acc.backgroundSec,
         });
       }
       updateStatusBar(nowMs, proj);
@@ -446,6 +476,185 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
     );
   }
 
+  /** Dirección del servidor configurada, si la hay. */
+  function servidorConfigurado(): string {
+    return context.globalState.get<string>(CLAVE_SERVIDOR, '');
+  }
+
+  /** Pregunta una sola vez por cada proyecto nuevo; sin respuesta no se envía nada. */
+  const preguntando = new Set<string>();
+  async function asegurarClasificacion(proj: { name: string; path: string }): Promise<void> {
+    if (!servidorConfigurado() || classifier.estado(proj.path) !== 'sin-decidir' || preguntando.has(proj.path)) {
+      return;
+    }
+    preguntando.add(proj.path);
+    try {
+      const TRABAJO = 'Es de trabajo';
+      const PERSONAL = 'Es personal';
+      const respuesta = await vscode.window.showInformationMessage(
+        `DevPulse: ¿"${proj.name}" es un proyecto de trabajo? Los proyectos personales no se envían nunca al servidor.`,
+        TRABAJO,
+        PERSONAL
+      );
+      if (respuesta === TRABAJO) {
+        classifier.marcar(proj.path, 'trabajo');
+      } else if (respuesta === PERSONAL) {
+        classifier.marcar(proj.path, 'personal');
+      }
+    } finally {
+      preguntando.delete(proj.path);
+    }
+  }
+
+  /** Vuelca lo acumulado en los contadores del día a la cola de salida. */
+  async function prepararContadores(): Promise<void> {
+    const filas = await storage.readAllRows();
+    const hoy = localDateOf(Date.now());
+    const ayer = localDateOf(Date.now() - 86400000);
+    for (const r of filas) {
+      if ((r.date === hoy || r.date === ayer) && classifier.seEnvia(r.projectPath)) {
+        outbox.anotarContadores({
+          projectPath: r.projectPath,
+          projectName: r.project,
+          date: r.date,
+          linesAdded: r.linesAdded,
+          linesDeleted: r.linesDeleted,
+          charsTyped: r.charsTyped,
+          saves: r.saves,
+          languages: r.languages,
+          runs: (r.runs ?? []).map((x) => ({ kind: x.kind, ms: x.ms, ok: x.ok })),
+        });
+      }
+    }
+  }
+
+  let enviando = false;
+  async function sincronizar(silencioso = true): Promise<void> {
+    const base = servidorConfigurado();
+    if (!base || enviando) {
+      return;
+    }
+    const token = await context.secrets.get(CLAVE_TOKEN);
+    if (!token) {
+      return;
+    }
+    enviando = true;
+    try {
+      await prepararContadores();
+      const envio = outbox.construirEnvio(instanceIdFor(context), VERSION);
+      if (!envio) {
+        if (!silencioso) {
+          void vscode.window.showInformationMessage('DevPulse: no hay nada pendiente de enviar.');
+        }
+        return;
+      }
+      const r = await enviarLatido(base, token, envio.cuerpo);
+      if (r.ok) {
+        outbox.confirmar(envio.claves);
+        await context.globalState.update(CLAVE_OUTBOX, outbox.serializar());
+        if (!silencioso) {
+          void vscode.window.showInformationMessage('DevPulse: datos enviados al servidor.');
+        }
+      } else {
+        // Se conserva todo para el siguiente intento: un fallo de red no pierde horas.
+        await context.globalState.update(CLAVE_OUTBOX, outbox.serializar());
+        if (!silencioso) {
+          void vscode.window.showErrorMessage(`DevPulse: no se pudo enviar (${r.mensaje ?? r.status}).`);
+        }
+      }
+    } finally {
+      enviando = false;
+    }
+  }
+
+  async function cmdConectarServidor(): Promise<void> {
+    const url = await vscode.window.showInputBox({
+      title: 'Servidor de DevPulse',
+      prompt: 'Dirección del servidor de tu organización',
+      placeHolder: 'https://devmonitor.miempresa.com',
+      value: servidorConfigurado(),
+      ignoreFocusOut: true,
+    });
+    if (url === undefined) {
+      return;
+    }
+    if (!url.trim()) {
+      await context.globalState.update(CLAVE_SERVIDOR, '');
+      await context.secrets.delete(CLAVE_TOKEN);
+      void vscode.window.showInformationMessage('DevPulse: desconectado. Los datos vuelven a ser solo locales.');
+      return;
+    }
+    const token = await vscode.window.showInputBox({
+      title: 'Token de acceso',
+      prompt: 'Token personal que te ha facilitado tu administrador',
+      password: true,
+      ignoreFocusOut: true,
+    });
+    if (!token) {
+      return;
+    }
+    await context.globalState.update(CLAVE_SERVIDOR, url.trim());
+    await context.secrets.store(CLAVE_TOKEN, token.trim());
+    const r = await enviarLatido(url.trim(), token.trim(), {
+      instanceId: instanceIdFor(context),
+      clientVersion: VERSION,
+      projects: [],
+    });
+    if (r.ok) {
+      void vscode.window.showInformationMessage(
+        'DevPulse: conexión correcta. Solo se enviarán los proyectos que marques como de trabajo.'
+      );
+    } else {
+      void vscode.window.showWarningMessage(
+        `DevPulse: guardado, pero la prueba de conexión falló (${r.mensaje ?? r.status}). Se reintentará automáticamente.`
+      );
+    }
+  }
+
+  async function cmdClasificarProyectos(): Promise<void> {
+    const filas = await storage.readAllRows();
+    const rutas = new Map<string, string>();
+    for (const r of filas) {
+      rutas.set(r.projectPath, r.project);
+    }
+    const actual = currentProject();
+    if (actual) {
+      rutas.set(actual.path, actual.name);
+    }
+    if (rutas.size === 0) {
+      void vscode.window.showInformationMessage('DevPulse: todavía no hay proyectos registrados.');
+      return;
+    }
+    const etiquetas: Record<Clasificacion, string> = {
+      trabajo: 'Se envía al servidor',
+      personal: 'Privado, no sale del equipo',
+      'sin-decidir': 'Sin decidir, no se envía',
+    };
+    const elegido = await vscode.window.showQuickPick(
+      [...rutas.entries()].map(([ruta, nombre]) => ({
+        label: nombre,
+        description: etiquetas[classifier.estado(ruta)],
+        detail: ruta,
+      })),
+      { placeHolder: 'Elige un proyecto para cambiar su clasificación' }
+    );
+    if (!elegido) {
+      return;
+    }
+    const TRABAJO = 'De trabajo (se envía)';
+    const PERSONAL = 'Personal (nunca se envía)';
+    const opcion = await vscode.window.showQuickPick([TRABAJO, PERSONAL], {
+      placeHolder: `¿Cómo se clasifica "${elegido.label}"?`,
+    });
+    if (!opcion) {
+      return;
+    }
+    classifier.marcar(elegido.detail, opcion === TRABAJO ? 'trabajo' : 'personal');
+    void vscode.window.showInformationMessage(
+      `DevPulse: "${elegido.label}" queda como ${opcion === TRABAJO ? 'proyecto de trabajo' : 'proyecto personal'}.`
+    );
+  }
+
   let tickTimer: NodeJS.Timeout | undefined;
   function restartTimer(): void {
     if (tickTimer) {
@@ -455,9 +664,10 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
   }
   restartTimer();
   const flushTimer = setInterval(() => void storage.flush(), 30000);
+  const syncTimer = setInterval(() => void sincronizar(), 5 * 60 * 1000);
 
   context.subscriptions.push(
-    { dispose: () => { if (tickTimer) { clearInterval(tickTimer); } clearInterval(flushTimer); } },
+    { dispose: () => { if (tickTimer) { clearInterval(tickTimer); } clearInterval(flushTimer); clearInterval(syncTimer); } },
     vscode.window.onDidChangeWindowState((st) => {
       focused = st.focused;
       if (st.focused) {
@@ -509,7 +719,13 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
       }
       tracker.noteActivity(Date.now());
     }) ?? { dispose: (): void => undefined },
-    vscode.window.onDidChangeActiveTextEditor(() => tracker.noteActivity(Date.now())),
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      tracker.noteActivity(Date.now());
+      const p = currentProject();
+      if (p) {
+        void asegurarClasificacion(p);
+      }
+    }),
     vscode.workspace.onDidChangeTextDocument((e) => void onDocChange(e)),
     vscode.workspace.onDidSaveTextDocument((doc) => void onSave(doc)),
     vscode.workspace.onDidChangeConfiguration((e) => {
@@ -525,6 +741,9 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
     vscode.commands.registerCommand('devpulse.exportExcel', () => cmdExportExcel()),
     vscode.commands.registerCommand('devpulse.exportCsv', () => cmdExportCsv()),
     vscode.commands.registerCommand('devpulse.exportJson', () => cmdExportJson()),
+    vscode.commands.registerCommand('devpulse.connectServer', () => cmdConectarServidor()),
+    vscode.commands.registerCommand('devpulse.classifyProjects', () => cmdClasificarProyectos()),
+    vscode.commands.registerCommand('devpulse.syncNow', () => sincronizar(false)),
     vscode.commands.registerCommand('devpulse.verifyExport', () => cmdVerifyExport()),
     vscode.commands.registerCommand('devpulse.showKeyFingerprint', () => cmdShowKeyFingerprint()),
     vscode.commands.registerCommand('devpulse.openDataFolder', () =>
@@ -536,6 +755,8 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
   deactivateHook = async () => {
     await closeOpenSession();
     await storage.flush();
+    await context.globalState.update(CLAVE_OUTBOX, outbox.serializar());
+    await sincronizar();
   };
 
   return {
@@ -544,6 +765,9 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
       noteActivity: (ms: number) => tracker.noteActivity(ms),
       flush: () => storage.flush(),
       dataDir,
+      sincronizar,
+      classifier,
+      outbox,
     },
   };
 }

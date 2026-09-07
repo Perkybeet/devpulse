@@ -48,9 +48,22 @@ Conviene ser preciso, porque de ello depende el uso que tenga sentido dar a los 
 
 En consecuencia, DevPulse está pensado como **herramienta de medición y reporte**, útil para conocer la dedicación real y para impedir la manipulación del informe una vez emitido. Si se necesita un registro resistente a la manipulación del propio usuario medido, los datos deben enviarse en continuo a un servidor bajo control de la organización, que sea quien selle el tiempo y emita los informes.
 
+## Modo servidor (opcional)
+
+DevPulse funciona por completo sin servidor, y así viene de fábrica. Las organizaciones que necesiten un registro de horas que el propio trabajador no pueda alterar pueden conectar su instalación de **DevMonitor**, un servidor que se instala en la máquina de la empresa.
+
+Con el comando **Conectar con el servidor de la organización** se indican la dirección y el token personal. A partir de ahí:
+
+- La primera vez que se abre un proyecto, la extensión pregunta si es **de trabajo** o **personal**. Los personales **no se envían nunca**: ni sus horas, ni su nombre, ni su ruta. Mientras un proyecto no se haya clasificado tampoco sale nada, así que un descuido no filtra información privada. La decisión se cambia cuando se quiera desde **Clasificar proyectos**.
+- La actividad se envía en bloques de un minuto. El servidor los sella con **su propio reloj**, rechaza los que vengan del futuro y no admite dos veces el mismo minuto, de modo que **no se puede declarar más jornada que tiempo realmente transcurrido**, ni cambiando la hora del equipo ni repitiendo envíos.
+- Si no hay conexión, nada se pierde: la cola se conserva y se reintenta.
+- El informe lo descarga el administrador desde el servidor, con datos que no han pasado por las manos de quien los genera.
+
+El token se guarda en el almacén de secretos del editor, nunca en un fichero de configuración.
+
 ## Privacidad
 
-Todos los datos se guardan **solo en tu equipo**, en el almacenamiento global de la extensión, particionados por mes en JSON. DevPulse no envía nada a ningún servidor. El comando **Abrir carpeta de datos** muestra los ficheros; **Restablecer datos** crea siempre una copia de seguridad antes de vaciar.
+Sin modo servidor, todos los datos se guardan **solo en tu equipo**, en el almacenamiento global de la extensión, particionados por mes en JSON. DevPulse no envía nada a ningún servidor. El comando **Abrir carpeta de datos** muestra los ficheros; **Restablecer datos** crea siempre una copia de seguridad antes de vaciar.
 
 ## Comandos
 
@@ -60,6 +73,9 @@ Todos los datos se guardan **solo en tu equipo**, en el almacenamiento global de
 | `DevPulse: Exportar informe a Excel (.xlsx)` | Informe completo firmado |
 | `DevPulse: Exportar datos a CSV` | Datos diarios firmados, formato Excel es-ES |
 | `DevPulse: Exportar datos a JSON` | Datos en bruto firmados |
+| `DevPulse: Conectar con el servidor de la organización` | Configura dirección y token (opcional) |
+| `DevPulse: Clasificar proyectos (trabajo o personal)` | Decide qué proyectos se envían y cuáles no |
+| `DevPulse: Enviar ahora al servidor` | Fuerza el envío de lo pendiente |
 | `DevPulse: Verificar una exportación firmada` | Comprueba integridad y huella de un informe |
 | `DevPulse: Mostrar huella de la clave de firma` | Huella a registrar por el administrador |
 | `DevPulse: Abrir carpeta de datos` | Abre el directorio de datos local |

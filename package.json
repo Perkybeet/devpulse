@@ -2,7 +2,7 @@
   "name": "devpulse-metrics",
   "displayName": "DevPulse — Tiempo y métricas por proyecto",
   "description": "Registro automático de horas por proyecto: tiempo activo y en terminal, sesiones de foco, duración y fallos de compilaciones y pruebas, lenguajes e informes de Excel firmados.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "perkybeet",
   "author": "Yago López <yago.lopez.adeje@gmail.com>",
   "license": "MIT",
@@ -53,6 +53,21 @@
       {
         "command": "devpulse.exportJson",
         "title": "Exportar datos a JSON",
+        "category": "DevPulse"
+      },
+      {
+        "command": "devpulse.syncNow",
+        "title": "Enviar ahora al servidor",
+        "category": "DevPulse"
+      },
+      {
+        "command": "devpulse.classifyProjects",
+        "title": "Clasificar proyectos (trabajo o personal)",
+        "category": "DevPulse"
+      },
+      {
+        "command": "devpulse.connectServer",
+        "title": "Conectar con el servidor de la organización",
         "category": "DevPulse"
       },
       {

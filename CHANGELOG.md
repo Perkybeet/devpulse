@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0
+
+- **Modo servidor opcional**: la extensión puede enviar la actividad a una instalación propia de la organización. Desactivado de fábrica; sin configurarlo todo sigue siendo local.
+- **Clasificación de proyectos**: al abrir un proyecto nuevo se pregunta si es de trabajo o personal. Los personales no salen nunca del equipo, y mientras no se responda tampoco se envía nada. La decisión se puede cambiar en cualquier momento.
+- La actividad viaja en bloques de un minuto topados a 60 segundos, de forma que el servidor pueda garantizar que nadie declara más jornada que tiempo transcurrido.
+- Cola de envío persistente: si falla la red o se cierra el editor, nada se pierde y se reintenta más tarde.
+- El token de acceso se guarda en el almacén de secretos del editor.
+
 ## 1.1.0
 
 - **Tiempo de terminal**: los comandos que se ejecutan en el terminal integrado cuentan como tiempo activo. Cubre el trabajo con agentes de línea de comandos, compilaciones largas y pruebas, que hasta ahora no quedaba registrado.

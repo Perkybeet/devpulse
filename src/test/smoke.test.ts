@@ -250,6 +250,73 @@ describe('extensión empaquetada (humo)', function () {
     assert.ok(stub._messages.some((m: string) => /Huella de la clave/.test(m)));
   });
 
+  it('solo envía al servidor los proyectos marcados como de trabajo', async () => {
+    // Se configura un servidor simulado interceptando la llamada de red
+    await ctx.globalState.update('devpulse.serverUrl', 'https://servidor.prueba');
+    await ctx.secrets.store('devpulse.serverToken', 'dmt_prueba');
+
+    const enviados: any[] = [];
+    const fetchOriginal = globalThis.fetch;
+    globalThis.fetch = (async (_url: string, init: any) => {
+      enviados.push(JSON.parse(init.body));
+      return { ok: true, status: 200 } as Response;
+    }) as typeof fetch;
+
+    try {
+      api.classifier.marcar(wsPath, 'trabajo');
+      api.classifier.marcar('/personal', 'personal');
+
+      const base = Date.now();
+      api.noteActivity(base);
+      await api.heartbeat(base);
+      for (let i = 1; i <= 4; i++) {
+        api.noteActivity(base + i * 5000);
+        await api.heartbeat(base + i * 5000);
+      }
+      await api.sincronizar(true);
+    } finally {
+      globalThis.fetch = fetchOriginal;
+    }
+
+    assert.strictEqual(enviados.length, 1, 'debe haberse enviado un latido');
+    const rutas = enviados[0].projects.map((p: any) => p.path);
+    assert.ok(rutas.includes(wsPath), `esperaba el proyecto de trabajo, hay: ${JSON.stringify(rutas)}`);
+    assert.ok(!rutas.includes('/personal'), 'el proyecto personal no debe salir del equipo');
+
+    // Cada minuto declarado cabe dentro de un minuto real
+    for (const p of enviados[0].projects) {
+      for (const m of p.minutes) {
+        assert.ok(m.a <= 60 && m.f <= 60 && m.f + m.b <= 60, `minuto imposible: ${JSON.stringify(m)}`);
+        assert.ok(m.a <= m.f, 'el tiempo activo no puede superar al de primer plano');
+      }
+    }
+  });
+
+  it('un fallo de red no pierde horas: quedan pendientes para el siguiente intento', async () => {
+    await ctx.globalState.update('devpulse.serverUrl', 'https://servidor.caido');
+    await ctx.secrets.store('devpulse.serverToken', 'dmt_prueba');
+
+    const fetchOriginal = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      throw new Error('sin conexión');
+    }) as typeof fetch;
+
+    try {
+      const base = Date.now() + 3_600_000;
+      api.noteActivity(base);
+      await api.heartbeat(base);
+      api.noteActivity(base + 5000);
+      await api.heartbeat(base + 5000);
+      const antes = api.outbox.pendientes;
+      assert.ok(antes > 0, 'debe haber minutos en cola');
+      await api.sincronizar(true);
+      assert.strictEqual(api.outbox.pendientes, antes, 'nada se descarta si el envío falla');
+    } finally {
+      globalThis.fetch = fetchOriginal;
+      await ctx.globalState.update('devpulse.serverUrl', '');
+    }
+  });
+
   it('el panel de métricas genera HTML con KPIs y gráficos', async () => {
     await stub.commands.executeCommand('devpulse.showDashboard');
     assert.strictEqual(stub._panels.length, 1);

@@ -48,6 +48,7 @@ export function createVscodeStub(opts: StubOptions): any {
   let warningResponse: string | undefined;
   let quickPickLabels: string[] | undefined; // undefined = seleccionar todo
   let openPath: string | undefined;
+  let inputRespuesta: string | undefined;
 
   const Uri = {
     file: (p: string) => ({ fsPath: p, scheme: 'file', path: p, toString: () => `file://${p}` }),
@@ -70,6 +71,9 @@ export function createVscodeStub(opts: StubOptions): any {
     },
     _setOpenPath: (p: string | undefined) => {
       openPath = p;
+    },
+    _setInput: (v: string | undefined) => {
+      inputRespuesta = v;
     },
 
     StatusBarAlignment: { Left: 1, Right: 2 },
@@ -110,6 +114,7 @@ export function createVscodeStub(opts: StubOptions): any {
         warningResponse !== undefined && items.includes(warningResponse) ? warningResponse : undefined,
       showSaveDialog: async () => (savePath ? Uri.file(savePath) : undefined),
       showOpenDialog: async () => (openPath ? [Uri.file(openPath)] : undefined),
+      showInputBox: async () => inputRespuesta,
       showQuickPick: async (items: any[]) =>
         quickPickLabels === undefined ? items : items.filter((i) => quickPickLabels!.includes(i.label)),
       withProgress: (_o: any, task: (p: any) => Promise<unknown>) => task({ report(): void {} }),
@@ -162,12 +167,33 @@ export function createVscodeStub(opts: StubOptions): any {
 
 export function makeContext(storagePath: string, instanceId?: string): any {
   const memoria = new Map<string, unknown>();
+  const global = new Map<string, unknown>();
+  const secretos = new Map<string, string>();
   if (instanceId) {
     memoria.set('devpulse.instanceId', instanceId);
   }
   return {
     subscriptions: [] as { dispose(): unknown }[],
     globalStorageUri: { fsPath: storagePath },
+    extension: { packageJSON: { version: '1.2.0' } },
+    globalState: {
+      get: (k: string, def?: unknown) => global.get(k) ?? def,
+      update: (k: string, v: unknown) => {
+        global.set(k, v);
+        return Promise.resolve();
+      },
+    },
+    secrets: {
+      get: (k: string) => Promise.resolve(secretos.get(k)),
+      store: (k: string, v: string) => {
+        secretos.set(k, v);
+        return Promise.resolve();
+      },
+      delete: (k: string) => {
+        secretos.delete(k);
+        return Promise.resolve();
+      },
+    },
     workspaceState: {
       get: (k: string, def?: unknown) => memoria.get(k) ?? def,
       update: (k: string, v: unknown) => {
