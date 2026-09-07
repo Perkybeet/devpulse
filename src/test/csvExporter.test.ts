@@ -13,10 +13,14 @@ describe('toCsv', () => {
     const lines = csv.replace('\uFEFF', '').trimEnd().split('\r\n');
     assert.strictEqual(lines.length, 2);
     assert.ok(lines[0].startsWith('Fecha;Proyecto;Ruta;HorasActivas'));
+    const cabeceras = lines[0].split(';');
     const cols = lines[1].split(';');
-    assert.strictEqual(cols[0], '2026-08-27');
-    assert.strictEqual(cols[3], '1,5');
-    assert.strictEqual(cols[9], '6'); // líneas netas
+    const valor = (nombre: string): string => cols[cabeceras.indexOf(nombre)];
+    assert.strictEqual(valor('Fecha'), '2026-08-27');
+    assert.strictEqual(valor('HorasActivas'), '1,5');
+    assert.strictEqual(valor('LineasNetas'), '6');
+    assert.strictEqual(valor('SegundosTerminal'), '0');
+    assert.strictEqual(cabeceras.length, cols.length, 'cada fila debe tener tantos campos como cabeceras');
   });
 
   it('entrecomilla campos con separador o comillas', () => {

@@ -1,11 +1,17 @@
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
+import { RunKind, statsDe, tiempoDeEspera } from '../core/feedbackLoops';
 import { DayStats, localDateOf } from '../core/model';
 import {
   addDays,
+  allRuns,
   consistencyScore,
   dailySeries,
+  daysWithFocusSession,
   ema,
+  focusDayRatio,
+  focusSessionCount,
+  fragmentation,
   groupRows,
   hourlyTotals,
   isoWeekOf,
@@ -17,6 +23,9 @@ import {
 } from '../core/statsEngine';
 import { StatsStorage } from '../core/storage';
 import { fmtHM, fmtHours1, fmtShortDate } from './format';
+import { ICONS, infoBoton } from './icons';
+import { contrastText, languageStyle } from './languageIcons';
+import { DEFS } from './metricDefs';
 
 export interface DashboardOptions {
   hourlyRate: number;
@@ -69,295 +78,466 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function ms(v: number): string {
+  if (v <= 0) {
+    return '—';
+  }
+  return v < 1000 ? `${Math.round(v)} ms` : `${(v / 1000).toFixed(1).replace('.', ',')} s`;
+}
+
 export function renderHtml(rows: DayStats[], today: string, opts: DashboardOptions): string {
   const nonce = crypto.randomBytes(16).toString('base64');
-  const total = summarize(rows);
-  const todayRows = rows.filter((r) => r.date === today);
-  const week = isoWeekOf(today);
-  const month = today.slice(0, 7);
-  const weekRows = rows.filter((r) => isoWeekOf(r.date) === week);
-  const monthRows = rows.filter((r) => r.date.startsWith(month));
-  const todaySecs = todayRows.reduce((a, r) => a + r.activeSeconds, 0);
-  const weekSecs = weekRows.reduce((a, r) => a + r.activeSeconds, 0);
-  const monthSecs = monthRows.reduce((a, r) => a + r.activeSeconds, 0);
-  const activeDates = rows.filter((r) => r.activeSeconds > 0).map((r) => r.date);
-  const st = streaks(activeDates, today);
-  const series30 = dailySeries(rows, 30, today);
-  const consistency = consistencyScore(series30.map((p) => p.seconds));
-  const peak = peakHour(hourlyTotals(rows));
-  const trendPerDay = linearTrend(dailySeries(rows, 14, today).map((p) => p.seconds));
-  const from90 = addDays(today, -89);
-  const rows90 = rows.filter((r) => r.date >= from90);
 
-  const kpiTiles = [
-    tile('Hoy', fmtHM(todaySecs)),
-    tile('Esta semana', fmtHM(weekSecs)),
-    tile('Este mes', fmtHM(monthSecs)),
-    tile('Total', fmtHM(total.activeSeconds)),
-    tile('Racha', `${st.current} d`, `máx. ${st.longest} d`),
-    tile('Consistencia', `${consistency}/100`, 'últimos 30 días'),
-    tile('Foco', `${Math.round(total.focusRatio * 100)} %`, 'activo / primer plano'),
-    tile('Hora pico', peak === null ? '—' : `${String(peak).padStart(2, '0')}:00`),
-    tile(
-      'Tendencia',
-      `${trendPerDay >= 0 ? '+' : '−'}${Math.abs(trendPerDay / 3600).toFixed(1).replace('.', ',')} h/día`,
-      'últimas 2 semanas'
-    ),
-  ];
-  if (opts.hourlyRate > 0) {
-    const monthCost = (monthSecs / 3600) * opts.hourlyRate;
-    kpiTiles.push(tile('Coste del mes', `${monthCost.toFixed(2).replace('.', ',')} ${esc(opts.currency)}`));
+  if (rows.length === 0) {
+    return pagina(
+      nonce,
+      today,
+      `<div class="vacio-inicial">
+        <div class="icono-grande">${ICONS.onda}</div>
+        <h2>Todavía no hay actividad</h2>
+        <p>Trabaja un rato con un proyecto abierto y vuelve a esta pestaña. DevPulse registra el tiempo
+        automáticamente, sin cronómetros ni botones que recordar.</p>
+      </div>`
+    );
   }
 
+  const total = summarize(rows);
+  const week = isoWeekOf(today);
+  const month = today.slice(0, 7);
+  const suma = (pred: (r: DayStats) => boolean): number =>
+    rows.filter(pred).reduce((a, r) => a + r.activeSeconds, 0);
+  const todaySecs = suma((r) => r.date === today);
+  const weekSecs = suma((r) => isoWeekOf(r.date) === week);
+  const monthSecs = suma((r) => r.date.startsWith(month));
+
+  const activeDates = rows.filter((r) => r.activeSeconds > 0).map((r) => r.date);
+  const st = streaks(activeDates, today);
+  const serie30 = dailySeries(rows, 30, today);
+  const consistencia = consistencyScore(serie30.map((p) => p.seconds));
+  const pico = peakHour(hourlyTotals(rows));
+  const tendencia = linearTrend(dailySeries(rows, 14, today).map((p) => p.seconds));
+  const rows90 = rows.filter((r) => r.date >= addDays(today, -89));
+
+  const runs = allRuns(rows);
+  const build = statsDe(runs, 'build');
+  const test = statsDe(runs, 'test');
+  const espera = tiempoDeEspera(runs);
+  const sesionesFoco = focusSessionCount(rows);
+  const diasFoco = daysWithFocusSession(rows);
+  const ratioFoco = focusDayRatio(rows);
+  const frag = fragmentation(rows);
+
+  const kpis = [
+    tarjeta(ICONS.reloj, 'verde', 'Hoy', fmtHM(todaySecs), DEFS.activo),
+    tarjeta(ICONS.calendario, 'azul', 'Esta semana', fmtHM(weekSecs), DEFS.activo),
+    tarjeta(ICONS.grafico, 'violeta', 'Este mes', fmtHM(monthSecs), DEFS.activo),
+    tarjeta(ICONS.onda, 'verde', 'Total', fmtHM(total.activeSeconds), DEFS.activo, `${total.activeDays} días activos`),
+    tarjeta(ICONS.terminal, 'ambar', 'En terminal', fmtHM(total.terminalSeconds), DEFS.terminal,
+      total.activeSeconds > 0 ? `${Math.round((total.terminalSeconds / total.activeSeconds) * 100)} % del tiempo activo` : undefined),
+    tarjeta(ICONS.llama, 'ambar', 'Racha', `${st.current} d`, DEFS.racha, `máxima de ${st.longest}`),
+    tarjeta(ICONS.balanza, 'azul', 'Consistencia', `${consistencia}/100`, DEFS.consistencia, 'últimos 30 días'),
+    tarjeta(ICONS.diana, 'violeta', 'Hora pico', pico === null ? '—' : `${String(pico).padStart(2, '0')}:00`, DEFS.horaPico),
+  ];
+  if (opts.hourlyRate > 0) {
+    const coste = (monthSecs / 3600) * opts.hourlyRate;
+    kpis.push(
+      tarjeta(ICONS.rayo, 'verde', 'Coste del mes', `${coste.toFixed(2).replace('.', ',')} ${esc(opts.currency)}`, {
+        nombre: 'Coste estimado',
+        calculo: `Horas activas del mes multiplicadas por la tarifa configurada (${opts.hourlyRate} ${esc(opts.currency)}/h).`,
+      })
+    );
+  }
+
+  const cuerpo = `
+    <div class="rejilla-kpis">${kpis.join('')}</div>
+
+    ${seccion(ICONS.grafico, 'Actividad de los últimos 30 días', DEFS.activo)}
+    ${graficoBarras(serie30, tendencia)}
+
+    ${seccion(ICONS.diana, 'Concentración', DEFS.sesionesFoco)}
+    <div class="rejilla-kpis">
+      ${tarjeta(ICONS.diana, 'verde', 'Sesiones de foco', String(sesionesFoco), DEFS.sesionesFoco, 'bloques de 15 min o más')}
+      ${tarjeta(ICONS.calendario, 'azul', 'Días con foco', `${Math.round(ratioFoco * 100)} %`, DEFS.diasConFoco, `${diasFoco} de ${total.activeDays} días activos`)}
+      ${tarjeta(ICONS.onda, 'ambar', 'Fragmentación', frag.toFixed(1).replace('.', ','), DEFS.fragmentacion, 'sesiones por día')}
+      ${tarjeta(ICONS.reloj, 'violeta', 'Sesión media', fmtHM(total.avgSessionSeconds), {
+        nombre: 'Sesión media',
+        calculo: 'Duración media de los bloques continuos de trabajo.',
+      })}
+    </div>
+
+    ${seccion(ICONS.rayo, 'Compilaciones y pruebas', DEFS.espera)}
+    ${runs.length === 0
+      ? `<p class="vacio">Sin compilaciones ni pruebas registradas todavía. Aparecerán en cuanto ejecutes una tarea o un comando en el terminal.</p>`
+      : `<div class="rejilla-kpis">
+          ${tarjetaEjecucion(ICONS.rayo, 'azul', 'Compilaciones', build, DEFS.compilaciones)}
+          ${tarjetaEjecucion(ICONS.diana, 'verde', 'Pruebas', test, DEFS.pruebas)}
+          ${tarjeta(ICONS.reloj, 'ambar', 'Tiempo de espera', fmtHM(espera / 1000), DEFS.espera, 'esperando a compilar o probar')}
+          ${tarjeta(ICONS.aviso, 'violeta', 'Tasa de fallo', `${Math.round(statsDe(runs).tasaFallo * 100)} %`, DEFS.tasaFallo, `${statsDe(runs).fallos} de ${runs.length}`)}
+        </div>`}
+
+    ${seccion(ICONS.calendario, 'Cuándo trabajas', {
+      nombre: 'Mapa de actividad',
+      calculo: 'Tiempo activo acumulado por día de la semana y hora, en los últimos 90 días.',
+    })}
+    ${heatmap(rows90)}
+
+    ${seccion(ICONS.carpeta, 'Proyectos', {
+      nombre: 'Proyectos',
+      calculo: 'Tiempo dedicado a cada carpeta de proyecto abierta en el editor.',
+    })}
+    ${tablaProyectos(rows, today)}
+
+    ${seccion(ICONS.codigo, 'Lenguajes', {
+      nombre: 'Lenguajes',
+      calculo: 'Tiempo activo atribuido al lenguaje del archivo que estaba abierto.',
+    })}
+    ${lenguajes(rows)}
+  `;
+
+  return pagina(nonce, today, cuerpo);
+}
+
+function pagina(nonce: string, today: string, cuerpo: string): string {
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
 <title>DevPulse</title>
-<style>
-  :root { color-scheme: light dark; }
-  body {
-    --dp-accent: #1a6fd4;
-    font-family: var(--vscode-font-family);
-    color: var(--vscode-foreground);
-    background: var(--vscode-editor-background);
-    padding: 16px 24px 40px;
-    max-width: 960px;
-    margin: 0 auto;
-  }
-  body.vscode-dark, body.vscode-high-contrast { --dp-accent: #3794ff; }
-  h1 { font-size: 18px; margin: 0; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--vscode-descriptionForeground); margin: 28px 0 10px; font-weight: 600; }
-  .topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
-  .topbar .sub { color: var(--vscode-descriptionForeground); font-size: 12px; flex: 1; }
-  button {
-    background: var(--vscode-button-background); color: var(--vscode-button-foreground);
-    border: none; border-radius: 3px; padding: 5px 12px; cursor: pointer; font-size: 12px;
-  }
-  button:hover { background: var(--vscode-button-hoverBackground); }
-  button.secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-  .tile { background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 10px 12px; }
-  .tile .label { font-size: 11px; color: var(--vscode-descriptionForeground); }
-  .tile .value { font-size: 20px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
-  .tile .hint { font-size: 10px; color: var(--vscode-descriptionForeground); margin-top: 2px; }
-  svg { width: 100%; height: auto; display: block; }
-  .bar { fill: var(--dp-accent); }
-  .bar:hover { opacity: 0.8; }
-  .grid { stroke: var(--vscode-panel-border); stroke-width: 1; }
-  .axis-label, .cell-label { fill: var(--vscode-descriptionForeground); font-size: 10px; font-family: var(--vscode-font-family); }
-  .direct-label { fill: var(--vscode-foreground); font-size: 10px; font-family: var(--vscode-font-family); }
-  .ema { stroke: var(--vscode-descriptionForeground); stroke-width: 2; stroke-dasharray: 4 3; fill: none; }
-  .cell { fill: var(--dp-accent); }
-  .cell-empty { fill: var(--vscode-panel-border); fill-opacity: 0.25; }
-  table { border-collapse: collapse; width: 100%; font-size: 12px; }
-  th { text-align: left; color: var(--vscode-descriptionForeground); font-weight: 600; border-bottom: 1px solid var(--vscode-panel-border); padding: 6px 8px; }
-  td { padding: 6px 8px; border-bottom: 1px solid var(--vscode-panel-border); font-variant-numeric: tabular-nums; }
-  td.num, th.num { text-align: right; }
-  .lang-row { display: grid; grid-template-columns: 130px 1fr 70px; align-items: center; gap: 10px; margin: 6px 0; font-size: 12px; }
-  .lang-track { background: var(--vscode-panel-border); border-radius: 3px; height: 8px; overflow: hidden; }
-  .lang-fill { background: var(--dp-accent); height: 100%; border-radius: 3px; }
-  .lang-val { text-align: right; color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; }
-  .empty { color: var(--vscode-descriptionForeground); padding: 24px 0; }
-</style>
+<style>${ESTILOS}</style>
 </head>
 <body>
-  <div class="topbar">
+  <header class="cabecera">
+    <span class="logo">${ICONS.onda}</span>
     <h1>DevPulse</h1>
-    <span class="sub">Actualizado: ${esc(today)}</span>
-    <button data-cmd="refresh" class="secondary">Actualizar</button>
-    <button data-cmd="exportCsv" class="secondary">Exportar CSV</button>
+    <span class="fecha">${esc(today)}</span>
+    <span class="separador"></span>
+    <button data-cmd="refresh" class="secundario">Actualizar</button>
+    <button data-cmd="exportCsv" class="secundario">CSV</button>
     <button data-cmd="exportExcel">Exportar Excel</button>
-  </div>
-  ${
-    rows.length === 0
-      ? '<p class="empty">Aún no hay actividad registrada. Trabaja un rato con un proyecto abierto y vuelve a este panel.</p>'
-      : `
-  <div class="tiles">${kpiTiles.join('')}</div>
-  <h2>Actividad diaria — últimos 30 días</h2>
-  ${barChartSvg(series30)}
-  <h2>Mapa de calor semana × hora — últimos 90 días</h2>
-  ${heatmapSvg(rows90)}
-  <h2>Proyectos</h2>
-  ${projectsTable(rows, today)}
-  <h2>Lenguajes</h2>
-  ${languagesBars(rows)}
-  `
-  }
+  </header>
+  <main>${cuerpo}</main>
   <script nonce="${nonce}">
-    const vscodeApi = acquireVsCodeApi();
-    for (const btn of document.querySelectorAll('button[data-cmd]')) {
-      btn.addEventListener('click', () => vscodeApi.postMessage({ command: btn.dataset.cmd }));
+    const api = acquireVsCodeApi();
+    for (const b of document.querySelectorAll('button[data-cmd]')) {
+      b.addEventListener('click', () => api.postMessage({ command: b.dataset.cmd }));
     }
   </script>
 </body>
 </html>`;
 }
 
-function tile(label: string, value: string, hint?: string): string {
-  return `<div class="tile"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div>${
-    hint ? `<div class="hint">${esc(hint)}</div>` : ''
-  }</div>`;
+function seccion(icono: string, titulo: string, def?: { nombre: string; calculo: string; matiz?: string }): string {
+  return `<h2 class="seccion"><span class="icono-seccion">${icono}</span>${esc(titulo)}${
+    def ? infoBoton(def.nombre, def.calculo, def.matiz) : ''
+  }</h2>`;
 }
 
-function barChartSvg(series: { date: string; seconds: number }[]): string {
-  const W = 720;
-  const H = 200;
-  const padL = 40;
-  const padR = 8;
-  const padT = 16;
-  const padB = 22;
-  const cw = W - padL - padR;
-  const ch = H - padT - padB;
-  const max = Math.max(3600, ...series.map((p) => p.seconds));
-  const n = series.length;
-  const step = cw / n;
-  const bw = Math.max(2, step - 2);
-  const yFor = (v: number) => padT + ch - (v / max) * ch;
+function tarjeta(
+  icono: string,
+  color: string,
+  etiqueta: string,
+  valor: string,
+  def: { nombre: string; calculo: string; matiz?: string },
+  apoyo?: string
+): string {
+  return `<article class="tarjeta">
+    <span class="icono icono-${color}">${icono}</span>
+    <span class="cuerpo">
+      <span class="etiqueta">${esc(etiqueta)}${infoBoton(def.nombre, def.calculo, def.matiz)}</span>
+      <span class="valor">${esc(valor)}</span>
+      ${apoyo ? `<span class="apoyo">${esc(apoyo)}</span>` : ''}
+    </span>
+  </article>`;
+}
 
-  let maxIdx = -1;
-  let maxVal = 0;
-  series.forEach((p, i) => {
-    if (p.seconds > maxVal) {
-      maxVal = p.seconds;
-      maxIdx = i;
+function tarjetaEjecucion(
+  icono: string,
+  color: string,
+  etiqueta: string,
+  s: ReturnType<typeof statsDe>,
+  def: { nombre: string; calculo: string; matiz?: string }
+): string {
+  const apoyo = s.total > 0 ? `${s.total} ejecuciones · p90 ${ms(s.p90ms)}` : 'sin datos';
+  return tarjeta(icono, color, etiqueta, s.total > 0 ? ms(s.p50ms) : '—', def, apoyo);
+}
+
+function graficoBarras(serie: { date: string; seconds: number }[], tendencia: number): string {
+  const W = 760;
+  const H = 210;
+  const izq = 44;
+  const der = 10;
+  const arr = 16;
+  const aba = 26;
+  const aw = W - izq - der;
+  const ah = H - arr - aba;
+  const max = Math.max(3600, ...serie.map((p) => p.seconds));
+  const paso = aw / serie.length;
+  const bw = Math.max(3, Math.min(24, paso - 4));
+  const y = (v: number): number => arr + ah - (v / max) * ah;
+
+  let iMax = 0;
+  serie.forEach((p, i) => {
+    if (p.seconds > serie[iMax].seconds) {
+      iMax = i;
     }
   });
 
-  const parts: string[] = [];
-  for (const frac of [0, 0.5, 1]) {
-    const y = yFor(max * frac).toFixed(1);
-    parts.push(`<line class="grid" x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}"/>`);
-    parts.push(
-      `<text class="axis-label" x="${padL - 6}" y="${(Number(y) + 3).toFixed(1)}" text-anchor="end">${(
-        (max * frac) /
-        3600
-      )
+  const partes: string[] = [];
+  for (const f of [0, 0.5, 1]) {
+    partes.push(`<line class="rejilla" x1="${izq}" y1="${y(max * f)}" x2="${W - der}" y2="${y(max * f)}"/>`);
+    partes.push(
+      `<text class="eje" x="${izq - 7}" y="${y(max * f) + 4}" text-anchor="end">${((max * f) / 3600)
         .toFixed(1)
-        .replace('.', ',')}h</text>`
+        .replace('.', ',')} h</text>`
     );
   }
-  series.forEach((p, i) => {
+  serie.forEach((p, i) => {
     if (p.seconds <= 0) {
       return;
     }
-    const h = (p.seconds / max) * ch;
-    const x = padL + i * step + (step - bw) / 2;
-    const y = padT + ch - h;
-    parts.push(
-      `<rect class="bar" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(2, h).toFixed(
+    const h = Math.max(3, (p.seconds / max) * ah);
+    partes.push(
+      `<rect class="barra" x="${(izq + i * paso + (paso - bw) / 2).toFixed(1)}" y="${(arr + ah - h).toFixed(
         1
-      )}" rx="2"><title>${fmtShortDate(p.date)}: ${fmtHM(p.seconds)}</title></rect>`
+      )}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="3"><title>${fmtShortDate(p.date)}: ${fmtHM(
+        p.seconds
+      )}</title></rect>`
     );
   });
-  const emaVals = ema(series.map((p) => p.seconds), 0.3);
-  const pts = emaVals.map((v, i) => `${(padL + i * step + step / 2).toFixed(1)},${yFor(v).toFixed(1)}`).join(' ');
-  parts.push(`<polyline class="ema" points="${pts}"/>`);
-  if (maxIdx >= 0) {
-    const x = padL + maxIdx * step + step / 2;
-    parts.push(
-      `<text class="direct-label" x="${x.toFixed(1)}" y="${(yFor(maxVal) - 4).toFixed(1)}" text-anchor="middle">${fmtHours1(
-        maxVal
+  const suave = ema(serie.map((p) => p.seconds), 0.3);
+  partes.push(
+    `<polyline class="media" points="${suave
+      .map((v, i) => `${(izq + i * paso + paso / 2).toFixed(1)},${y(v).toFixed(1)}`)
+      .join(' ')}"/>`
+  );
+  if (serie[iMax].seconds > 0) {
+    partes.push(
+      `<text class="etiqueta-dato" x="${(izq + iMax * paso + paso / 2).toFixed(1)}" y="${(
+        y(serie[iMax].seconds) - 6
+      ).toFixed(1)}" text-anchor="middle">${fmtHours1(serie[iMax].seconds)}</text>`
+    );
+  }
+  for (const i of [0, Math.floor(serie.length / 2), serie.length - 1]) {
+    partes.push(
+      `<text class="eje" x="${(izq + i * paso + paso / 2).toFixed(1)}" y="${H - 7}" text-anchor="middle">${fmtShortDate(
+        serie[i].date
       )}</text>`
     );
   }
-  for (const i of [0, Math.floor(n / 2), n - 1]) {
-    const x = padL + i * step + step / 2;
-    parts.push(
-      `<text class="axis-label" x="${x.toFixed(1)}" y="${H - 6}" text-anchor="middle">${fmtShortDate(series[i].date)}</text>`
-    );
-  }
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Horas activas por día">${parts.join('')}</svg>`;
+
+  const signo = tendencia >= 0 ? '+' : '−';
+  const leyenda = `<div class="leyenda"><span class="clave media-clave"></span> media móvil · tendencia ${signo}${Math.abs(
+    tendencia / 3600
+  )
+    .toFixed(1)
+    .replace('.', ',')} h/día</div>`;
+
+  return `<figure class="figura"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Tiempo activo por día">${partes.join(
+    ''
+  )}</svg>${leyenda}</figure>`;
 }
 
-function heatmapSvg(rows: DayStats[]): string {
-  const matrix: number[][] = Array.from({ length: 7 }, () => new Array(24).fill(0));
+function heatmap(rows: DayStats[]): string {
+  const m: number[][] = Array.from({ length: 7 }, () => new Array(24).fill(0));
   for (const r of rows) {
-    const weekday = (new Date(`${r.date}T00:00:00`).getDay() + 6) % 7; // 0 = lunes
+    const d = (new Date(`${r.date}T00:00:00`).getDay() + 6) % 7;
     for (let h = 0; h < 24; h++) {
-      matrix[weekday][h] += r.hourly[h] ?? 0;
+      m[d][h] += r.hourly[h] ?? 0;
     }
   }
-  const max = Math.max(1, ...matrix.flat());
-  const cell = 22;
-  const gap = 2;
-  const padL = 30;
+  const max = Math.max(1, ...m.flat());
+  const c = 20;
+  const g = 3;
+  const padL = 26;
   const padT = 16;
-  const W = padL + 24 * (cell + gap);
-  const H = padT + 7 * (cell + gap);
-  const dayNames = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
-  const parts: string[] = [];
+  const W = padL + 24 * (c + g);
+  const H = padT + 7 * (c + g);
+  const dias = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+  const p: string[] = [];
   for (let h = 0; h < 24; h += 4) {
-    parts.push(
-      `<text class="axis-label" x="${padL + h * (cell + gap) + cell / 2}" y="${padT - 5}" text-anchor="middle">${h}h</text>`
-    );
+    p.push(`<text class="eje" x="${padL + h * (c + g) + c / 2}" y="${padT - 5}" text-anchor="middle">${h}h</text>`);
   }
   for (let d = 0; d < 7; d++) {
-    parts.push(
-      `<text class="axis-label" x="${padL - 8}" y="${padT + d * (cell + gap) + cell / 2 + 3}" text-anchor="end">${dayNames[d]}</text>`
-    );
+    p.push(`<text class="eje" x="${padL - 7}" y="${padT + d * (c + g) + c / 2 + 3}" text-anchor="end">${dias[d]}</text>`);
     for (let h = 0; h < 24; h++) {
-      const v = matrix[d][h];
-      const x = padL + h * (cell + gap);
-      const y = padT + d * (cell + gap);
-      const cls = v > 0 ? 'cell' : 'cell-empty';
-      const opacity = v > 0 ? (0.12 + 0.88 * (v / max)).toFixed(2) : '1';
-      parts.push(
-        `<rect class="${cls}" x="${x}" y="${y}" width="${cell}" height="${cell}" rx="3" fill-opacity="${opacity}">` +
-          `<title>${dayNames[d]} ${String(h).padStart(2, '0')}:00 — ${fmtHM(v)}</title></rect>`
+      const v = m[d][h];
+      const op = v > 0 ? (0.14 + 0.86 * (v / max)).toFixed(2) : '1';
+      p.push(
+        `<rect class="${v > 0 ? 'celda' : 'celda-vacia'}" x="${padL + h * (c + g)}" y="${
+          padT + d * (c + g)
+        }" width="${c}" height="${c}" rx="3" fill-opacity="${op}"><title>${dias[d]} ${String(h).padStart(
+          2,
+          '0'
+        )}:00 — ${fmtHM(v)}</title></rect>`
       );
     }
   }
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Actividad por día de la semana y hora">${parts.join('')}</svg>`;
+  return `<figure class="figura"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Actividad por día y hora">${p.join(
+    ''
+  )}</svg></figure>`;
 }
 
-function projectsTable(rows: DayStats[], today: string): string {
+function tablaProyectos(rows: DayStats[], today: string): string {
   const week = isoWeekOf(today);
   const month = today.slice(0, 7);
-  const byProject = [...groupRows(rows, (r) => r.projectPath).entries()]
-    .map(([projectPath, projRows]) => ({ projectPath, projRows, total: summarize(projRows) }))
-    .sort((a, b) => b.total.activeSeconds - a.total.activeSeconds);
-  const body = byProject
-    .map(({ projRows, total }) => {
-      const sum = (pred: (r: DayStats) => boolean) =>
-        projRows.filter(pred).reduce((a, r) => a + r.activeSeconds, 0);
+  const grupos = [...groupRows(rows, (r) => r.projectPath).entries()]
+    .map(([ruta, fila]) => ({ ruta, fila, s: summarize(fila) }))
+    .sort((a, b) => b.s.activeSeconds - a.s.activeSeconds);
+
+  const filas = grupos
+    .map(({ fila, s }) => {
+      const sum = (p: (r: DayStats) => boolean): number =>
+        fila.filter(p).reduce((a, r) => a + r.activeSeconds, 0);
       return `<tr>
-        <td title="${esc(projRows[0].projectPath)}">${esc(projRows[0].project)}</td>
+        <td><span class="proyecto" title="${esc(fila[0].projectPath)}">${esc(fila[0].project)}</span></td>
         <td class="num">${fmtHM(sum((r) => r.date === today))}</td>
         <td class="num">${fmtHM(sum((r) => isoWeekOf(r.date) === week))}</td>
         <td class="num">${fmtHM(sum((r) => r.date.startsWith(month)))}</td>
-        <td class="num">${fmtHM(total.activeSeconds)}</td>
-        <td class="num">${fmtHours1(total.avgSecondsPerActiveDay)}</td>
-        <td class="num">+${total.linesAdded} / −${total.linesDeleted}</td>
-        <td class="num">${total.sessionCount}</td>
+        <td class="num fuerte">${fmtHM(s.activeSeconds)}</td>
+        <td class="num">${s.sessionCount}</td>
+        <td class="num">${s.linesAdded > 0 || s.linesDeleted > 0 ? `<span class="mas">+${s.linesAdded}</span> <span class="menos">−${s.linesDeleted}</span>` : '—'}</td>
       </tr>`;
     })
     .join('');
-  return `<table>
+
+  return `<div class="tabla"><table>
     <thead><tr>
       <th>Proyecto</th><th class="num">Hoy</th><th class="num">Semana</th><th class="num">Mes</th>
-      <th class="num">Total</th><th class="num">Media/día</th><th class="num">Líneas</th><th class="num">Sesiones</th>
+      <th class="num">Total</th><th class="num">Sesiones</th>
+      <th class="num">Líneas ${infoBoton(DEFS.lineas.nombre, DEFS.lineas.calculo, DEFS.lineas.matiz)}</th>
     </tr></thead>
-    <tbody>${body}</tbody>
-  </table>`;
+    <tbody>${filas}</tbody>
+  </table></div>`;
 }
 
-function languagesBars(rows: DayStats[]): string {
-  const totals = Object.entries(languageTotals(rows)).sort((a, b) => b[1] - a[1]);
-  if (totals.length === 0) {
-    return '<p class="empty">Sin datos de lenguajes todavía.</p>';
+function lenguajes(rows: DayStats[]): string {
+  const totales = Object.entries(languageTotals(rows)).sort((a, b) => b[1] - a[1]);
+  if (totales.length === 0) {
+    return '<p class="vacio">Sin datos de lenguajes todavía.</p>';
   }
-  const max = totals[0][1];
-  const top = totals.slice(0, 8);
-  const items = top
-    .map(([lang, secs]) => {
-      const width = Math.max(2, Math.round((secs / max) * 100));
-      return `<div class="lang-row"><span>${esc(lang)}</span><div class="lang-track"><div class="lang-fill" style="width:${width}%"></div></div><span class="lang-val">${fmtHours1(
-        secs
-      )}</span></div>`;
+  const suma = totales.reduce((a, [, v]) => a + v, 0);
+  const max = totales[0][1];
+  const top = totales.slice(0, 10);
+  const filas = top
+    .map(([id, secs]) => {
+      const est = languageStyle(id);
+      const ancho = Math.max(2, Math.round((secs / max) * 100));
+      const pct = suma > 0 ? Math.round((secs / suma) * 100) : 0;
+      return `<div class="lenguaje">
+        <span class="pastilla" style="background:${est.color};color:${contrastText(est.color)}">${esc(est.sigla)}</span>
+        <span class="nombre-lenguaje">${esc(est.nombre)}</span>
+        <span class="via"><span class="relleno" style="width:${ancho}%;background:${est.color}"></span></span>
+        <span class="cifra">${fmtHours1(secs)}</span>
+        <span class="pct">${pct} %</span>
+      </div>`;
     })
     .join('');
-  const rest = totals.length - top.length;
-  return items + (rest > 0 ? `<div class="lang-row"><span>otros (${rest})</span><div></div><div></div></div>` : '');
+  const resto = totales.length - top.length;
+  return `<div class="lista-lenguajes">${filas}${
+    resto > 0 ? `<div class="mas-lenguajes">y ${resto} lenguaje${resto === 1 ? '' : 's'} más</div>` : ''
+  }</div>`;
 }
+
+const ESTILOS = `
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body {
+  --acento: #1a6fd4;
+  --barra: #1a6fd4;
+  font-family: var(--vscode-font-family);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  margin: 0; padding: 0 28px 56px; font-size: 13px;
+}
+body.vscode-dark, body.vscode-high-contrast { --acento: #3794ff; --barra: #22a87e; }
+main { max-width: 1060px; margin: 0 auto; }
+.cabecera {
+  display: flex; align-items: center; gap: 10px;
+  max-width: 1060px; margin: 0 auto; padding: 16px 0 14px;
+  border-bottom: 1px solid var(--vscode-panel-border); margin-bottom: 6px;
+  position: sticky; top: 0; background: var(--vscode-editor-background); z-index: 30;
+}
+.cabecera h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .01em; }
+.logo { color: var(--barra); display: inline-flex; }
+.fecha { color: var(--vscode-descriptionForeground); font-size: 11px; }
+.separador { flex: 1; }
+button {
+  background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+  border: none; border-radius: 4px; padding: 5px 12px; cursor: pointer; font-size: 12px; font-family: inherit;
+}
+button:hover { background: var(--vscode-button-hoverBackground); }
+button.secundario { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+h2.seccion {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--vscode-descriptionForeground); font-weight: 600; margin: 30px 0 12px;
+}
+.icono-seccion { display: inline-flex; color: var(--acento); }
+.rejilla-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 10px; }
+.tarjeta {
+  display: flex; gap: 11px; align-items: flex-start;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-panel-border); border-radius: 9px; padding: 12px 14px;
+}
+.icono { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; flex-shrink: 0; }
+.icono-verde { background: rgba(34,168,126,.16); color: #22a87e; }
+.icono-azul { background: rgba(61,142,224,.16); color: #3d8ee0; }
+.icono-ambar { background: rgba(179,135,44,.18); color: #b3872c; }
+.icono-violeta { background: rgba(138,111,212,.18); color: #8a6fd4; }
+.cuerpo { min-width: 0; display: flex; flex-direction: column; }
+.etiqueta { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--vscode-descriptionForeground); }
+.valor { font-size: 21px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.3; }
+.apoyo { font-size: 10px; color: var(--vscode-descriptionForeground); }
+.info { position: relative; display: inline-flex; }
+.info-boton { background: none; border: none; padding: 0; color: var(--vscode-descriptionForeground); display: inline-grid; place-items: center; cursor: help; line-height: 0; }
+.info-boton:hover, .info-boton:focus-visible { color: var(--acento); background: none; }
+.info-globo {
+  position: absolute; bottom: calc(100% + 7px); left: 50%; transform: translateX(-50%);
+  width: 250px; background: var(--vscode-editorHoverWidget-background, #1b1b1b);
+  border: 1px solid var(--vscode-editorHoverWidget-border, #444); border-radius: 7px;
+  padding: 9px 11px; font-size: 11.5px; line-height: 1.45; color: var(--vscode-foreground);
+  display: none; flex-direction: column; gap: 5px; z-index: 40; text-transform: none; letter-spacing: normal;
+  font-weight: 400; box-shadow: 0 6px 20px rgba(0,0,0,.35);
+}
+.info-globo strong { color: var(--acento); }
+.info-globo em { font-style: normal; color: var(--vscode-descriptionForeground); border-top: 1px solid var(--vscode-panel-border); padding-top: 5px; }
+.info:hover .info-globo, .info:has(.info-boton:focus-visible) .info-globo { display: flex; }
+.figura { margin: 0; background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-panel-border); border-radius: 9px; padding: 12px 14px; }
+.figura svg { width: 100%; height: auto; display: block; }
+.barra { fill: var(--barra); }
+.barra:hover { fill: var(--acento); }
+.rejilla { stroke: var(--vscode-panel-border); stroke-width: 1; }
+.eje { fill: var(--vscode-descriptionForeground); font-size: 9.5px; }
+.etiqueta-dato { fill: var(--vscode-foreground); font-size: 10px; font-weight: 600; }
+.media { fill: none; stroke: var(--vscode-descriptionForeground); stroke-width: 1.8; stroke-dasharray: 4 3; }
+.celda { fill: var(--barra); }
+.celda-vacia { fill: var(--vscode-panel-border); fill-opacity: .22; }
+.leyenda { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--vscode-descriptionForeground); margin-top: 8px; }
+.clave { width: 14px; height: 0; border-top: 1.8px dashed var(--vscode-descriptionForeground); display: inline-block; }
+.tabla { background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-panel-border); border-radius: 9px; overflow: hidden; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th { text-align: left; font-weight: 600; color: var(--vscode-descriptionForeground); padding: 9px 13px; border-bottom: 1px solid var(--vscode-panel-border); font-size: 11px; white-space: nowrap; }
+th.num, td.num { text-align: right; }
+td { padding: 9px 13px; border-bottom: 1px solid var(--vscode-panel-border); font-variant-numeric: tabular-nums; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: rgba(127,127,127,.07); }
+td.fuerte { font-weight: 650; }
+.mas { color: #22a87e; }
+.menos { color: #d16969; }
+.lista-lenguajes { background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-panel-border); border-radius: 9px; padding: 12px 14px; }
+.lenguaje { display: grid; grid-template-columns: 34px 130px 1fr 62px 42px; align-items: center; gap: 10px; padding: 5px 0; font-size: 12px; }
+.pastilla { display: inline-grid; place-items: center; height: 22px; border-radius: 5px; font-size: 9.5px; font-weight: 700; letter-spacing: .02em; }
+.nombre-lenguaje { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.via { background: var(--vscode-panel-border); border-radius: 3px; height: 7px; overflow: hidden; }
+.relleno { display: block; height: 100%; border-radius: 3px; }
+.cifra { text-align: right; font-variant-numeric: tabular-nums; }
+.pct { text-align: right; color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; }
+.mas-lenguajes { font-size: 11px; color: var(--vscode-descriptionForeground); padding-top: 6px; }
+.vacio { color: var(--vscode-descriptionForeground); padding: 18px 0; }
+.vacio-inicial { text-align: center; padding: 80px 20px; max-width: 460px; margin: 0 auto; }
+.vacio-inicial h2 { font-size: 17px; margin: 14px 0 8px; }
+.vacio-inicial p { color: var(--vscode-descriptionForeground); line-height: 1.6; }
+.icono-grande { color: var(--barra); display: inline-flex; transform: scale(2.4); }
+.proyecto { font-weight: 500; }
+`;

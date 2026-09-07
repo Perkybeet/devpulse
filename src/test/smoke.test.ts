@@ -106,7 +106,50 @@ describe('extensión empaquetada (humo)', function () {
     assert.ok(days.some((d) => d.filesTouched.includes(path.join('src', 'app.ts'))));
   });
 
-  it('exporta un Excel válido, firmado y con las 9 hojas', async () => {
+  it('registra compilaciones y pruebas con su duración y resultado', async () => {
+    const t0 = Date.now();
+    // Una tarea de compilación que termina bien
+    stub._emitters.taskStart.fire({ execution: { task: { name: 'npm: build', definition: { type: 'npm' } } } });
+    await sleep(60);
+    stub._emitters.taskEnd.fire({ execution: { task: { name: 'npm: build', definition: { type: 'npm' } } }, exitCode: 0 });
+
+    // Una ejecución de pruebas en el terminal que falla
+    const ejecucion = { commandLine: { value: 'npm test' } };
+    stub._emitters.shellStart.fire({ execution: ejecucion });
+    await sleep(60);
+    stub._emitters.shellEnd.fire({ execution: ejecucion, exitCode: 1 });
+
+    await sleep(120);
+    await api.flush();
+
+    const runs = leerDias(api.dataDir).flatMap((d: any) => d.runs ?? []);
+    const build = runs.find((r: any) => r.kind === 'build');
+    const test = runs.find((r: any) => r.kind === 'test');
+    assert.ok(build, `esperaba una compilación, hay: ${JSON.stringify(runs)}`);
+    assert.strictEqual(build.ok, true);
+    assert.ok(build.ms >= 40, `duración registrada demasiado corta: ${build.ms}`);
+    assert.ok(test, 'esperaba una ejecución de pruebas');
+    assert.strictEqual(test.ok, false, 'la prueba salió con código 1');
+    assert.ok(build.at >= t0);
+  });
+
+  it('el tiempo de terminal cuenta como actividad sin tocar el teclado', async () => {
+    const base = Date.now();
+    const ejecucion = { commandLine: { value: 'npm run watch' } };
+    stub._emitters.shellStart.fire({ execution: ejecucion });
+
+    const antes = leerDias(api.dataDir).reduce((a: number, d: any) => a + (d.terminalSeconds ?? 0), 0);
+    // Sin ninguna interacción de teclado: solo el comando corriendo
+    await api.heartbeat(base + 600_000);
+    await api.heartbeat(base + 600_000 + 30_000);
+    await api.flush();
+    stub._emitters.shellEnd.fire({ execution: ejecucion, exitCode: 0 });
+
+    const despues = leerDias(api.dataDir).reduce((a: number, d: any) => a + (d.terminalSeconds ?? 0), 0);
+    assert.ok(despues > antes, `el terminal debe acreditar tiempo activo (antes ${antes}, después ${despues})`);
+  });
+
+  it('exporta un Excel válido, firmado y con las 10 hojas', async () => {
     const xlsxPath = path.join(tmp, 'informe.xlsx');
     stub._setSavePath(xlsxPath);
     await stub.commands.executeCommand('devpulse.exportExcel');
@@ -117,7 +160,7 @@ describe('extensión empaquetada (humo)', function () {
     const ExcelJS = require('exceljs');
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.readFile(xlsxPath);
-    const sheets = ['Resumen', 'Proyectos', 'Diario', 'Semanal', 'Mensual', 'Lenguajes', 'Sesiones', 'Horas del día', 'Verificación'];
+    const sheets = ['Resumen', 'Proyectos', 'Diario', 'Semanal', 'Mensual', 'Compilaciones y pruebas', 'Lenguajes', 'Sesiones', 'Horas del día', 'Verificación'];
     for (const name of sheets) {
       assert.ok(wb.getWorksheet(name), `falta la hoja ${name}`);
     }
@@ -212,10 +255,20 @@ describe('extensión empaquetada (humo)', function () {
     assert.strictEqual(stub._panels.length, 1);
     const html = stub._panels[0].webview.html as string;
     assert.ok(html.includes('DevPulse'));
-    assert.ok(html.includes('Actividad diaria'));
-    assert.ok(html.includes('Mapa de calor'));
-    assert.ok(html.includes('proyecto-demo'));
-    assert.ok(html.includes('<svg'));
+    assert.ok(html.includes('proyecto-demo'), 'debe listar el proyecto');
+    assert.ok(html.includes('<svg'), 'debe dibujar gráficos');
+
+    for (const seccion of ['Actividad de los últimos 30 días', 'Concentración', 'Compilaciones y pruebas', 'Cuándo trabajas', 'Proyectos', 'Lenguajes']) {
+      assert.ok(html.includes(seccion), `falta la sección ${seccion}`);
+    }
+    // Cada métrica debe poder explicarse: los botones de ayuda llevan su texto
+    assert.ok(html.includes('info-globo'), 'deben existir las explicaciones');
+    assert.ok(html.includes('Sesiones de foco'), 'métrica de foco presente');
+    assert.ok(html.includes('En terminal'), 'métrica de terminal presente');
+    // Pastilla de lenguaje con su color oficial
+    assert.ok(html.includes('#3178c6'), 'el color de TypeScript debe aparecer');
+    // Nada de emojis en la interfaz
+    assert.ok(!/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(html), 'la interfaz no debe contener emojis');
   });
 
   it('restablece los datos creando una copia de seguridad', async () => {

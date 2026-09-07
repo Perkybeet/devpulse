@@ -27,6 +27,14 @@ export interface StubOptions {
 export function createVscodeStub(opts: StubOptions): any {
   const emitters = {
     windowState: new Emitter<any>(),
+    terminalOpen: new Emitter<any>(),
+    terminalActive: new Emitter<any>(),
+    shellStart: new Emitter<any>(),
+    shellEnd: new Emitter<any>(),
+    taskStart: new Emitter<any>(),
+    taskEnd: new Emitter<any>(),
+    debugStart: new Emitter<any>(),
+    debugEnd: new Emitter<any>(),
     selection: new Emitter<any>(),
     activeEditor: new Emitter<any>(),
     docChange: new Emitter<any>(),
@@ -77,6 +85,10 @@ export function createVscodeStub(opts: StubOptions): any {
       onDidChangeWindowState: emitters.windowState.event,
       onDidChangeTextEditorSelection: emitters.selection.event,
       onDidChangeActiveTextEditor: emitters.activeEditor.event,
+      onDidOpenTerminal: emitters.terminalOpen.event,
+      onDidChangeActiveTerminal: emitters.terminalActive.event,
+      onDidStartTerminalShellExecution: emitters.shellStart.event,
+      onDidEndTerminalShellExecution: emitters.shellEnd.event,
       createStatusBarItem: () => ({
         text: '',
         tooltip: '',
@@ -134,6 +146,14 @@ export function createVscodeStub(opts: StubOptions): any {
         const fn = registeredCommands.get(id);
         return fn ? fn(...args) : undefined;
       },
+    },
+    tasks: {
+      onDidStartTask: emitters.taskStart.event,
+      onDidEndTaskProcess: emitters.taskEnd.event,
+    },
+    debug: {
+      onDidStartDebugSession: emitters.debugStart.event,
+      onDidTerminateDebugSession: emitters.debugEnd.event,
     },
     env: { openExternal: async () => true },
   };

@@ -1,8 +1,8 @@
 {
   "name": "devpulse-metrics",
   "displayName": "DevPulse — Tiempo y métricas por proyecto",
-  "description": "Registro automático de horas por proyecto: medias diarias, semanales y mensuales, líneas añadidas y eliminadas, tiempo en primer plano, sesiones, lenguajes y exportación a Excel.",
-  "version": "1.0.1",
+  "description": "Registro automático de horas por proyecto: tiempo activo y en terminal, sesiones de foco, duración y fallos de compilaciones y pruebas, lenguajes e informes de Excel firmados.",
+  "version": "1.1.0",
   "publisher": "perkybeet",
   "author": "Yago López <yago.lopez.adeje@gmail.com>",
   "license": "MIT",
@@ -13,7 +13,7 @@
   },
   "homepage": "https://bitbeet.dev",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.93.0"
   },
   "categories": [
     "Other",
@@ -25,7 +25,9 @@
     "productividad",
     "metricas",
     "excel",
-    "informes"
+    "informes",
+    "terminal",
+    "wakatime alternative"
   ],
   "main": "./dist/extension.js",
   "activationEvents": [
@@ -120,6 +122,16 @@
           },
           "default": [],
           "description": "Nombres de carpetas de proyecto que no se deben registrar."
+        },
+        "devpulse.trackTerminal": {
+          "type": "boolean",
+          "default": true,
+          "description": "Contar como tiempo activo los comandos que se ejecutan en el terminal integrado (agentes de IA, compilaciones, pruebas). Requiere VS Code 1.93 o superior."
+        },
+        "devpulse.trackFeedbackLoops": {
+          "type": "boolean",
+          "default": true,
+          "description": "Medir cuánto tardan las compilaciones y las pruebas, y con qué frecuencia fallan."
         }
       }
     }
@@ -138,7 +150,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.17.0",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "^1.93.0",
     "@vscode/vsce": "^3.2.1",
     "esbuild": "^0.24.2",
     "mocha": "^10.8.2",

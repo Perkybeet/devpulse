@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.0
+
+- **Tiempo de terminal**: los comandos que se ejecutan en el terminal integrado cuentan como tiempo activo. Cubre el trabajo con agentes de línea de comandos, compilaciones largas y pruebas, que hasta ahora no quedaba registrado.
+- **Compilaciones y pruebas**: nueva sección con la duración (mediana y percentil 90), la tasa de fallo y el tiempo total de espera. Se detectan tanto tareas de VS Code como comandos del terminal y sesiones de depuración.
+- **Concentración**: sesiones de foco, porcentaje de días con al menos una y fragmentación de la jornada. Se cuentan sesiones y días en lugar de horas acumuladas, siguiendo la evidencia disponible.
+- **Panel rediseñado**: iconos con color por categoría, explicación de cada métrica con su fórmula y sus matices, y lenguajes identificados con su color oficial.
+- Nueva hoja de Excel con las compilaciones y pruebas, y columnas de tiempo en terminal en Proyectos y Diario.
+- El CSV incluye la columna `SegundosTerminal`.
+- Requiere VS Code 1.93 o superior para la medición del terminal.
+
 ## 1.0.1
 
 - El selector de proyectos aparece siempre al exportar, también cuando solo hay un proyecto registrado.

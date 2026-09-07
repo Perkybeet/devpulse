@@ -4,12 +4,14 @@ Registro automático y verificable del tiempo de desarrollo en VS Code. DevPulse
 
 ## Qué mide
 
-- **Tiempo activo**: tiempo con la ventana enfocada e interacción reciente (teclado, cursor, cambios de archivo). Es la métrica principal de dedicación.
+- **Tiempo activo**: ventana enfocada con interacción reciente (teclado, cursor, cambios de archivo) **o un comando corriendo en el terminal integrado**. El umbral de inactividad por defecto es de 2 minutos, el valor con mejor respaldo empírico en la literatura; muchas herramientas usan 15 minutos, lo que infla las cifras.
+- **Tiempo en terminal**: parte del tiempo activo transcurrida con un comando en marcha. Hoy media jornada puede transcurrir en agentes de línea de comandos, compilaciones y pruebas; ninguna otra extensión lo contabiliza.
 - **Tiempo en primer plano**: ventana de VS Code enfocada, aunque no haya interacción.
 - **Tiempo en segundo plano**: VS Code abierto sin foco, dentro de un periodo de gracia configurable.
 - **Líneas añadidas y eliminadas** (churn de edición), caracteres escritos y guardados.
 - **Archivos únicos editados** y **tiempo por lenguaje**.
-- **Sesiones de trabajo**: bloques continuos de actividad; las pausas cortas no rompen la sesión.
+- **Sesiones de trabajo y concentración**: bloques continuos de actividad. Se informa del **número de sesiones de foco** (15 minutos o más) y del **porcentaje de días con al menos una**, no de "horas de foco": son los dos indicadores con validación publicada frente a la concentración percibida, mientras que el total de horas no predice nada.
+- **Compilaciones y pruebas**: cuánto tardan (mediana y percentil 90, no media), con qué frecuencia fallan y cuánto tiempo se pierde esperándolas. Mide el proyecto, no a la persona: si empeora, hay algo que arreglar.
 - **Histograma por hora del día** (horas pico), por día de la semana, y agregados diarios, semanales (ISO), mensuales y totales.
 - **Indicadores derivados**: media por día activo, media semanal y mensual, rachas de días consecutivos, índice de consistencia, tendencia (media móvil exponencial y regresión lineal), ratio de foco y coste estimado según tarifa/hora.
 
@@ -25,7 +27,7 @@ El tiempo se acumula con un muestreo de baja frecuencia (5 s por defecto) con de
 Comandos **Exportar informe a Excel (.xlsx)**, **Exportar datos a CSV** y **Exportar datos a JSON**.
 
 - Antes de exportar puedes **elegir qué proyectos incluir**: los proyectos personales quedan fuera del informe si los desmarcas.
-- El Excel incluye 9 hojas: Resumen (KPIs), Proyectos, Diario, Semanal, Mensual, Lenguajes, Sesiones, Horas del día y Verificación.
+- El Excel incluye 10 hojas: Resumen (KPIs), Proyectos, Diario, Semanal, Mensual, Compilaciones y pruebas, Lenguajes, Sesiones, Horas del día y Verificación.
 - El CSV usa separador `;`, decimales con coma y BOM UTF-8, de modo que Excel en español lo abre directamente.
 
 ## Integridad y verificación de informes
@@ -74,6 +76,8 @@ Todos los datos se guardan **solo en tu equipo**, en el almacenamiento global de
 | `devpulse.hourlyRate` | `0` | Tarifa por hora para estimar coste (0 = sin coste) |
 | `devpulse.currency` | `EUR` | Moneda de los informes |
 | `devpulse.excludedProjects` | `[]` | Carpetas de proyecto que no se registran nunca |
+| `devpulse.trackTerminal` | `true` | Contar los comandos del terminal integrado como tiempo activo |
+| `devpulse.trackFeedbackLoops` | `true` | Medir duración y fallos de compilaciones y pruebas |
 
 ## Preguntas frecuentes
 
@@ -85,6 +89,12 @@ Nada: sin interacción el tiempo activo se corta a los 2 minutos, el segundo pla
 
 **¿Funciona con varios proyectos en la misma ventana (multi-root)?**
 Sí: el tiempo se atribuye al proyecto del archivo activo.
+
+**¿Y si tengo una ventana abierta por proyecto?**
+También. Cada ventana guarda en su propia partición y los informes las combinan, así que ninguna pisa el trabajo de las otras.
+
+**¿Por qué no medís productividad?**
+Porque no se puede desde un editor, y quien diga lo contrario está vendiendo humo. Lo que ocurre en el editor es esfuerzo, no resultado: la comprensión de código ocupa cerca del 70 % de la jornada y la edición apenas el 5 %, y el tiempo de teclado explica solo una fracción marginal de la productividad percibida. DevPulse mide dedicación y salud del entorno de trabajo, que sí son medibles y accionables.
 
 ## Licencia
 

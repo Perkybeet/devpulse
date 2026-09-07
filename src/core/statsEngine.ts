@@ -1,9 +1,11 @@
+import { RunRecord } from './feedbackLoops';
 import { DayStats } from './model';
 
 export interface Summary {
   activeSeconds: number;
   foregroundSeconds: number;
   backgroundSeconds: number;
+  terminalSeconds: number;
   linesAdded: number;
   linesDeleted: number;
   netLines: number;
@@ -49,6 +51,7 @@ export function summarize(rows: DayStats[]): Summary {
     activeSeconds: 0,
     foregroundSeconds: 0,
     backgroundSeconds: 0,
+    terminalSeconds: 0,
     linesAdded: 0,
     linesDeleted: 0,
     netLines: 0,
@@ -70,6 +73,7 @@ export function summarize(rows: DayStats[]): Summary {
     s.activeSeconds += r.activeSeconds;
     s.foregroundSeconds += r.foregroundSeconds;
     s.backgroundSeconds += r.backgroundSeconds;
+    s.terminalSeconds += r.terminalSeconds ?? 0;
     s.linesAdded += r.linesAdded;
     s.linesDeleted += r.linesDeleted;
     s.charsTyped += r.charsTyped;
@@ -226,4 +230,70 @@ export function peakHour(hourly: number[]): number | null {
     }
   }
   return best >= 0 ? best : null;
+}
+
+/**
+ * Sesiones de foco: bloques continuos de trabajo por encima de una duración
+ * mínima.
+ *
+ * Se cuentan sesiones y días, nunca horas acumuladas: la investigación con
+ * más de trece mil desarrolladores encontró que el total de horas en foco no
+ * predice la concentración percibida, mientras que el número de sesiones y el
+ * porcentaje de días con al menos una sí lo hacen.
+ */
+export const FOCUS_MIN_SECONDS = 15 * 60;
+
+export function focusSessionCount(rows: DayStats[], minSeconds = FOCUS_MIN_SECONDS): number {
+  let total = 0;
+  for (const r of rows) {
+    for (const s of r.sessions) {
+      if ((s.end - s.start) / 1000 >= minSeconds) {
+        total++;
+      }
+    }
+  }
+  return total;
+}
+
+export function daysWithFocusSession(rows: DayStats[], minSeconds = FOCUS_MIN_SECONDS): number {
+  const dias = new Set<string>();
+  for (const r of rows) {
+    if (r.sessions.some((s) => (s.end - s.start) / 1000 >= minSeconds)) {
+      dias.add(r.date);
+    }
+  }
+  return dias.size;
+}
+
+/** Proporción de días activos en los que hubo al menos una sesión de foco. */
+export function focusDayRatio(rows: DayStats[], minSeconds = FOCUS_MIN_SECONDS): number {
+  const activos = new Set(rows.filter((r) => r.activeSeconds > 0).map((r) => r.date));
+  if (activos.size === 0) {
+    return 0;
+  }
+  return daysWithFocusSession(rows, minSeconds) / activos.size;
+}
+
+/**
+ * Fragmentación: sesiones por día activo. Cuantas más sesiones cortas, más
+ * troceada estuvo la jornada.
+ */
+export function fragmentation(rows: DayStats[]): number {
+  const activos = new Set(rows.filter((r) => r.activeSeconds > 0).map((r) => r.date));
+  if (activos.size === 0) {
+    return 0;
+  }
+  const sesiones = rows.reduce((a, r) => a + r.sessions.length, 0);
+  return sesiones / activos.size;
+}
+
+/** Todas las ejecuciones de compilación y prueba registradas en las filas. */
+export function allRuns(rows: DayStats[]): RunRecord[] {
+  const out: RunRecord[] = [];
+  for (const r of rows) {
+    if (r.runs) {
+      out.push(...r.runs);
+    }
+  }
+  return out;
 }

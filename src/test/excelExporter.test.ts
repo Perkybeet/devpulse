@@ -30,7 +30,7 @@ function fixture(): DayStats[] {
 }
 
 describe('exportExcel', () => {
-  const SHEETS = ['Resumen', 'Proyectos', 'Diario', 'Semanal', 'Mensual', 'Lenguajes', 'Sesiones', 'Horas del día'];
+  const SHEETS = ['Resumen', 'Proyectos', 'Diario', 'Semanal', 'Mensual', 'Compilaciones y pruebas', 'Lenguajes', 'Sesiones', 'Horas del día'];
 
   it('genera un libro válido con todas las hojas y datos coherentes', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'devpulse-xlsx-'));
@@ -89,6 +89,17 @@ describe('exportExcel', () => {
 
     const resumen = wb.getWorksheet('Resumen')!;
     assert.strictEqual(resumen.getCell('A1').value, 'DevPulse — Informe de dedicación');
+
+    const rendimiento = wb.getWorksheet('Compilaciones y pruebas')!;
+    const tipos: string[] = [];
+    rendimiento.eachRow((row, n) => {
+      if (n > 1) {
+        tipos.push(String(row.getCell(1).value ?? ''));
+      }
+    });
+    assert.ok(tipos.includes('Compilaciones'), 'debe desglosar compilaciones');
+    assert.ok(tipos.includes('Pruebas'), 'debe desglosar pruebas');
+    assert.ok(tipos.some((t) => t.startsWith('Tiempo de espera')), 'debe totalizar la espera');
   });
 
   it('con datos de firma añade la hoja Verificación', async () => {

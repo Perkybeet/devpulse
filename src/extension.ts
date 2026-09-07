@@ -4,6 +4,7 @@ import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { classifyRun, MAX_RUNS_PER_DAY, RunKind } from './core/feedbackLoops';
 import { countChanges } from './core/lineCounter';
 import { DayStats, localDateOf, localHourOf, MAX_FILES_PER_DAY, monthOfDate } from './core/model';
 import { ensureKeyPair, signRows, verifySidecar, writeSidecar } from './core/signing';
@@ -24,6 +25,8 @@ interface DevPulseConfig {
   hourlyRate: number;
   currency: string;
   excludedProjects: string[];
+  trackTerminal: boolean;
+  trackFeedbackLoops: boolean;
 }
 
 export interface TestApi {
@@ -43,6 +46,8 @@ function readConfig(): DevPulseConfig {
     hourlyRate: c.get<number>('hourlyRate', 0),
     currency: c.get<string>('currency', 'EUR'),
     excludedProjects: c.get<string[]>('excludedProjects', []),
+    trackTerminal: c.get<boolean>('trackTerminal', true),
+    trackFeedbackLoops: c.get<boolean>('trackFeedbackLoops', true),
   };
 }
 
@@ -163,6 +168,39 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
     });
   }
 
+  /**
+   * Comandos en marcha en el terminal integrado. Mientras haya alguno, el
+   * tiempo cuenta como activo aunque no se toque el teclado: hoy buena parte
+   * del trabajo ocurre en herramientas de línea de comandos dentro del editor,
+   * y ninguna otra extensión del mercado lo contabiliza.
+   */
+  let terminalesOcupados = 0;
+
+  /** Registra una compilación, prueba o depuración ya terminada. */
+  async function registrarEjecucion(kind: RunKind, ms: number, ok: boolean): Promise<void> {
+    if (!config.trackFeedbackLoops || kind === 'other' || ms <= 0) {
+      return;
+    }
+    const proj = currentProject();
+    if (!proj) {
+      return;
+    }
+    const now = Date.now();
+    await storage.mutateDay(localDateOf(now), proj.name, proj.path, (d) => {
+      if (!d.runs) {
+        d.runs = [];
+      }
+      d.runs.push({ kind, ms: Math.round(ms), ok, at: now });
+      if (d.runs.length > MAX_RUNS_PER_DAY) {
+        d.runs.splice(0, d.runs.length - MAX_RUNS_PER_DAY);
+      }
+    });
+  }
+
+  const inicioTareas = new Map<string, number>();
+  const inicioShell = new Map<object, { at: number; kind: RunKind }>();
+  const inicioDepuracion = new Map<string, number>();
+
   let ticking = false;
   async function heartbeat(nowMs: number): Promise<void> {
     if (ticking) {
@@ -170,6 +208,10 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
     }
     ticking = true;
     try {
+      const enTerminal = config.trackTerminal && terminalesOcupados > 0;
+      if (enTerminal && focused) {
+        tracker.noteActivity(nowMs);
+      }
       const acc = tracker.tick(nowMs, focused);
       const proj = currentProject();
       if (proj && (acc.activeSec > 0 || acc.foregroundSec > 0 || acc.backgroundSec > 0 || acc.closedSession)) {
@@ -180,6 +222,9 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
           d.activeSeconds += acc.activeSec;
           d.foregroundSeconds += acc.foregroundSec;
           d.backgroundSeconds += acc.backgroundSec;
+          if (enTerminal) {
+            d.terminalSeconds = (d.terminalSeconds ?? 0) + acc.activeSec;
+          }
           if (acc.activeSec > 0) {
             d.hourly[hour] += acc.activeSec;
             if (lang) {
@@ -420,6 +465,50 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
       }
     }),
     vscode.window.onDidChangeTextEditorSelection(() => tracker.noteActivity(Date.now())),
+    vscode.window.onDidOpenTerminal(() => tracker.noteActivity(Date.now())),
+    // Compilaciones y pruebas lanzadas como tareas de VS Code.
+    vscode.tasks.onDidStartTask((e) => {
+      inicioTareas.set(e.execution.task.name, Date.now());
+      tracker.noteActivity(Date.now());
+    }),
+    vscode.tasks.onDidEndTaskProcess((e) => {
+      const nombre = e.execution.task.name;
+      const inicio = inicioTareas.get(nombre);
+      inicioTareas.delete(nombre);
+      if (inicio !== undefined) {
+        const kind = classifyRun(`${nombre} ${e.execution.task.definition?.type ?? ''}`);
+        void registrarEjecucion(kind, Date.now() - inicio, (e.exitCode ?? 0) === 0);
+      }
+      tracker.noteActivity(Date.now());
+    }),
+    vscode.debug.onDidStartDebugSession((s) => {
+      inicioDepuracion.set(s.id, Date.now());
+      tracker.noteActivity(Date.now());
+    }),
+    vscode.debug.onDidTerminateDebugSession((s) => {
+      const inicio = inicioDepuracion.get(s.id);
+      inicioDepuracion.delete(s.id);
+      if (inicio !== undefined) {
+        void registrarEjecucion('debug', Date.now() - inicio, true);
+      }
+    }),
+    vscode.window.onDidChangeActiveTerminal(() => tracker.noteActivity(Date.now())),
+    // La integración de shell existe desde VS Code 1.93; si no está, se ignora.
+    vscode.window.onDidStartTerminalShellExecution?.((e) => {
+      terminalesOcupados++;
+      const linea = e.execution?.commandLine?.value ?? '';
+      inicioShell.set(e.execution as object, { at: Date.now(), kind: classifyRun(linea) });
+      tracker.noteActivity(Date.now());
+    }) ?? { dispose: (): void => undefined },
+    vscode.window.onDidEndTerminalShellExecution?.((e) => {
+      terminalesOcupados = Math.max(0, terminalesOcupados - 1);
+      const registro = inicioShell.get(e.execution as object);
+      inicioShell.delete(e.execution as object);
+      if (registro) {
+        void registrarEjecucion(registro.kind, Date.now() - registro.at, (e.exitCode ?? 0) === 0);
+      }
+      tracker.noteActivity(Date.now());
+    }) ?? { dispose: (): void => undefined },
     vscode.window.onDidChangeActiveTextEditor(() => tracker.noteActivity(Date.now())),
     vscode.workspace.onDidChangeTextDocument((e) => void onDocChange(e)),
     vscode.workspace.onDidSaveTextDocument((doc) => void onSave(doc)),

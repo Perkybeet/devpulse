@@ -1,7 +1,12 @@
 import * as ExcelJS from 'exceljs';
 import { DayStats } from '../core/model';
+import { statsDe, tiempoDeEspera } from '../core/feedbackLoops';
 import {
+  allRuns,
   consistencyScore,
+  daysWithFocusSession,
+  focusSessionCount,
+  fragmentation,
   dailySeries,
   groupRows,
   hourlyTotals,
@@ -88,6 +93,7 @@ export async function exportExcel(rows: DayStats[], filePath: string, opts: Expo
   buildDiario(wb, rows, opts);
   buildAgrupado(wb, 'Semanal', 'Semana', rows, (r) => isoWeekOf(r.date), opts);
   buildAgrupado(wb, 'Mensual', 'Mes', rows, (r) => monthOf(r.date), opts);
+  buildRendimiento(wb, rows);
   buildLenguajes(wb, rows);
   buildSesiones(wb, rows);
   buildHorasDelDia(wb, rows);
@@ -142,6 +148,10 @@ function buildResumen(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOption
     ['Racha actual (días)', st.current],
     ['Racha máxima (días)', st.longest],
     ['Consistencia (0-100)', consistency],
+    ['Horas en terminal', hoursDec(total.terminalSeconds), '0.00'],
+    ['Sesiones de foco (15 min o más)', focusSessionCount(rows)],
+    ['Días con sesión de foco', daysWithFocusSession(rows)],
+    ['Sesiones por día activo', Math.round(fragmentation(rows) * 10) / 10, '0.0'],
     ['Hora pico', peak === null ? '-' : `${String(peak).padStart(2, '0')}:00`],
   ];
   if (opts.hourlyRate > 0) {
@@ -171,6 +181,7 @@ function buildProyectos(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOpti
     { header: 'Activo (h:mm)', key: 'dur', width: 14 },
     { header: 'Primer plano (h)', key: 'fg', width: 16 },
     { header: 'Segundo plano (h)', key: 'bg', width: 17 },
+    { header: 'Terminal (h)', key: 'term', width: 13 },
     { header: 'Días activos', key: 'days', width: 12 },
     { header: 'Media h/día activo', key: 'avg', width: 17 },
     { header: 'Sesiones', key: 'sessions', width: 10 },
@@ -195,6 +206,7 @@ function buildProyectos(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOpti
       dur: excelDur(s.activeSeconds),
       fg: hoursDec(s.foregroundSeconds),
       bg: hoursDec(s.backgroundSeconds),
+      term: hoursDec(s.terminalSeconds),
       days: s.activeDays,
       avg: hoursDec(s.avgSecondsPerActiveDay),
       sessions: s.sessionCount,
@@ -207,7 +219,7 @@ function buildProyectos(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOpti
       cost: cost(s.activeSeconds, opts.hourlyRate),
     });
   }
-  setColFmt(ws, ['hours', 'fg', 'bg', 'avg'], '0.00');
+  setColFmt(ws, ['hours', 'fg', 'bg', 'term', 'avg'], '0.00');
   setColFmt(ws, ['dur'], DUR_FMT);
   setColFmt(ws, ['focus'], '0.0');
   if (opts.hourlyRate > 0) {
@@ -225,6 +237,7 @@ function buildDiario(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOptions
     { header: 'Activo (h:mm)', key: 'dur', width: 13 },
     { header: 'Primer plano (h:mm)', key: 'fg', width: 18 },
     { header: 'Segundo plano (h:mm)', key: 'bg', width: 19 },
+    { header: 'Terminal (h:mm)', key: 'term', width: 16 },
     { header: 'Líneas +', key: 'added', width: 10 },
     { header: 'Líneas -', key: 'deleted', width: 10 },
     { header: 'Netas', key: 'net', width: 9 },
@@ -242,6 +255,7 @@ function buildDiario(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOptions
       dur: excelDur(r.activeSeconds),
       fg: excelDur(r.foregroundSeconds),
       bg: excelDur(r.backgroundSeconds),
+      term: excelDur(r.terminalSeconds ?? 0),
       added: r.linesAdded,
       deleted: r.linesDeleted,
       net: r.linesAdded - r.linesDeleted,
@@ -253,7 +267,7 @@ function buildDiario(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOptions
     });
   }
   setColFmt(ws, ['hours'], '0.00');
-  setColFmt(ws, ['dur', 'fg', 'bg'], DUR_FMT);
+  setColFmt(ws, ['dur', 'fg', 'bg', 'term'], DUR_FMT);
   if (opts.hourlyRate > 0) {
     setColFmt(ws, ['cost'], '#,##0.00');
   }
@@ -306,6 +320,42 @@ function buildAgrupado(
   if (opts.hourlyRate > 0) {
     setColFmt(ws, ['cost'], '#,##0.00');
   }
+  styleHeader(ws);
+}
+
+/** Compilaciones y pruebas: mide el proyecto, no a la persona. */
+function buildRendimiento(wb: ExcelJS.Workbook, rows: DayStats[]): void {
+  const ws = wb.addWorksheet('Compilaciones y pruebas');
+  ws.columns = [
+    { header: 'Tipo', key: 'tipo', width: 18 },
+    { header: 'Ejecuciones', key: 'total', width: 13 },
+    { header: 'Fallos', key: 'fallos', width: 10 },
+    { header: 'Tasa de fallo (%)', key: 'tasa', width: 17 },
+    { header: 'Mediana (s)', key: 'p50', width: 13 },
+    { header: 'Percentil 90 (s)', key: 'p90', width: 16 },
+    { header: 'Tiempo total (min)', key: 'total_min', width: 18 },
+  ];
+  const runs = allRuns(rows);
+  for (const [clave, etiqueta] of [
+    ['build', 'Compilaciones'],
+    ['test', 'Pruebas'],
+    ['debug', 'Depuraciones'],
+  ] as const) {
+    const s = statsDe(runs, clave);
+    ws.addRow({
+      tipo: etiqueta,
+      total: s.total,
+      fallos: s.fallos,
+      tasa: Math.round(s.tasaFallo * 1000) / 10,
+      p50: Math.round(s.p50ms / 100) / 10,
+      p90: Math.round(s.p90ms / 100) / 10,
+      total_min: Math.round(s.totalMs / 60000),
+    });
+  }
+  ws.addRow({});
+  const esperaCell = ws.addRow({ tipo: 'Tiempo de espera total (min)', total: Math.round(tiempoDeEspera(runs) / 60000) });
+  esperaCell.font = { bold: true };
+  setColFmt(ws, ['tasa', 'p50', 'p90'], '0.0');
   styleHeader(ws);
 }
 

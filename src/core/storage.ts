@@ -1,6 +1,7 @@
 import { Dirent } from 'fs';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { MAX_RUNS_PER_DAY } from './feedbackLoops';
 import { DayStats, dayKey, emptyDayStats, monthOfDate } from './model';
 
 const MONTH_FILE = /^\d{4}-\d{2}\.json$/;
@@ -15,6 +16,7 @@ export function mergeDay(dst: DayStats, src: DayStats): void {
   dst.activeSeconds += src.activeSeconds;
   dst.foregroundSeconds += src.foregroundSeconds;
   dst.backgroundSeconds += src.backgroundSeconds;
+  dst.terminalSeconds += src.terminalSeconds ?? 0;
   dst.linesAdded += src.linesAdded;
   dst.linesDeleted += src.linesDeleted;
   dst.charsTyped += src.charsTyped;
@@ -31,6 +33,9 @@ export function mergeDay(dst: DayStats, src: DayStats): void {
     dst.hourly[h] += src.hourly[h] ?? 0;
   }
   dst.sessions.push(...src.sessions);
+  if (src.runs) {
+    dst.runs = [...(dst.runs ?? []), ...src.runs].slice(-MAX_RUNS_PER_DAY);
+  }
 }
 
 /**

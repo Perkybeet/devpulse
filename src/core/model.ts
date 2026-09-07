@@ -1,3 +1,5 @@
+import { RunRecord } from './feedbackLoops';
+
 export interface SessionRecord {
   /** Inicio de la sesión en milisegundos epoch. */
   start: number;
@@ -16,6 +18,8 @@ export interface DayStats {
   foregroundSeconds: number;
   /** Segundos con la ventana abierta pero sin foco, dentro del periodo de gracia. */
   backgroundSeconds: number;
+  /** Segundos de tiempo activo mientras se ejecutaba un comando en el terminal integrado. */
+  terminalSeconds: number;
   linesAdded: number;
   linesDeleted: number;
   charsTyped: number;
@@ -26,6 +30,8 @@ export interface DayStats {
   /** Segundos activos por hora local del día (24 posiciones). */
   hourly: number[];
   sessions: SessionRecord[];
+  /** Compilaciones, pruebas y depuraciones ejecutadas ese día. */
+  runs: RunRecord[];
 }
 
 export const MAX_FILES_PER_DAY = 500;
@@ -38,6 +44,7 @@ export function emptyDayStats(date: string, project: string, projectPath: string
     activeSeconds: 0,
     foregroundSeconds: 0,
     backgroundSeconds: 0,
+    terminalSeconds: 0,
     linesAdded: 0,
     linesDeleted: 0,
     charsTyped: 0,
@@ -46,6 +53,7 @@ export function emptyDayStats(date: string, project: string, projectPath: string
     languages: {},
     hourly: new Array(24).fill(0),
     sessions: [],
+    runs: [],
   };
 }
 
