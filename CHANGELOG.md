@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1
+
+- El selector de proyectos aparece siempre al exportar, también cuando solo hay un proyecto registrado.
+- Las columnas de coste solo se incluyen si se ha configurado una tarifa por hora.
+- Corregida la pérdida de datos cuando había varias ventanas de VS Code abiertas a la vez: cada ventana guarda ahora en su propia partición y los informes las fusionan.
+
 ## 1.0.0
 
 Versión inicial.

@@ -2,7 +2,7 @@
   "name": "devpulse-metrics",
   "displayName": "DevPulse — Tiempo y métricas por proyecto",
   "description": "Registro automático de horas por proyecto: medias diarias, semanales y mensuales, líneas añadidas y eliminadas, tiempo en primer plano, sesiones, lenguajes y exportación a Excel.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "perkybeet",
   "author": "Yago López <yago.lopez.adeje@gmail.com>",
   "license": "MIT",
