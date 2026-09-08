@@ -15,7 +15,7 @@ Registro automático y verificable del tiempo de desarrollo en VS Code. DevPulse
 - **Cómo llega el código**: qué parte se teclea y qué parte entra en bloque (pegado, plantillas o sugerencias aceptadas de un asistente), junto con los asistentes de IA instalados. También cuenta los archivos modificados fuera del editor por scripts o agentes. No afirma quién escribió el código: dice cómo llegó.
 - **Entregas**: los commits de los repositorios abiertos, guardando solo el hash abreviado y la hora, para contrastar el tiempo registrado con trabajo real y verificable.
 - **Histograma por hora del día** (horas pico), por día de la semana, y agregados diarios, semanales (ISO), mensuales y totales.
-- **Indicadores derivados**: media por día activo, media semanal y mensual, rachas de días consecutivos, índice de consistencia, tendencia (media móvil exponencial y regresión lineal), ratio de foco y coste estimado según tarifa/hora.
+- **Indicadores derivados**: media por día activo, media semanal y mensual, rachas de días consecutivos, índice de consistencia, tendencia (media móvil exponencial y regresión lineal) y ratio de foco.
 
 El tiempo se acumula con un muestreo de baja frecuencia (5 s por defecto) con detección de inactividad y protección frente a suspensiones del equipo: dejar el portátil abierto no infla las horas.
 
@@ -91,8 +91,6 @@ Sin modo servidor, todos los datos se guardan **solo en tu equipo**, en el almac
 | `devpulse.sessionGapSeconds` | `600` | Pausa máxima que mantiene viva una sesión |
 | `devpulse.backgroundGraceSeconds` | `1800` | Máximo de segundo plano contabilizado tras perder el foco |
 | `devpulse.tickSeconds` | `5` | Frecuencia interna de muestreo |
-| `devpulse.hourlyRate` | `0` | Tarifa por hora para estimar coste (0 = sin coste) |
-| `devpulse.currency` | `EUR` | Moneda de los informes |
 | `devpulse.excludedProjects` | `[]` | Carpetas de proyecto que no se registran nunca |
 | `devpulse.trackTerminal` | `true` | Contar los comandos del terminal integrado como tiempo activo |
 | `devpulse.trackFeedbackLoops` | `true` | Medir duración y fallos de compilaciones y pruebas |

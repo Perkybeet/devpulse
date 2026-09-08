@@ -32,8 +32,6 @@ interface DevPulseConfig {
   sessionGapSeconds: number;
   backgroundGraceSeconds: number;
   tickSeconds: number;
-  hourlyRate: number;
-  currency: string;
   excludedProjects: string[];
   trackTerminal: boolean;
   trackFeedbackLoops: boolean;
@@ -58,8 +56,6 @@ function readConfig(): DevPulseConfig {
     sessionGapSeconds: c.get<number>('sessionGapSeconds', 600),
     backgroundGraceSeconds: c.get<number>('backgroundGraceSeconds', 1800),
     tickSeconds: c.get<number>('tickSeconds', 5),
-    hourlyRate: c.get<number>('hourlyRate', 0),
-    currency: c.get<string>('currency', 'EUR'),
     excludedProjects: c.get<string[]>('excludedProjects', []),
     trackTerminal: c.get<boolean>('trackTerminal', true),
     trackFeedbackLoops: c.get<boolean>('trackFeedbackLoops', true),
@@ -494,8 +490,6 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
           const keys = await ensureKeyPair(keysDir);
           const rowsSig = signRows(rows, keys);
           await exportExcel(rows, uri.fsPath, {
-            hourlyRate: config.hourlyRate,
-            currency: config.currency,
             today: localDateOf(now),
             generatedAt: now,
             signature: {
@@ -861,8 +855,6 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
     }),
     vscode.commands.registerCommand('devpulse.showDashboard', () =>
       DashboardPanel.createOrShow(storage, () => ({
-        hourlyRate: config.hourlyRate,
-        currency: config.currency,
         assistants: asistentesInstalados(),
       }))
     ),

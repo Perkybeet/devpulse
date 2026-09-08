@@ -19,8 +19,6 @@ import {
 } from '../core/statsEngine';
 
 export interface ExportOptions {
-  hourlyRate: number;
-  currency: string;
   /** Fecha local de hoy (YYYY-MM-DD), usada para las rachas. */
   today: string;
   /** Momento de generación en ms epoch. */
@@ -52,18 +50,9 @@ function pct(v: number): number {
   return Math.round(v * 1000) / 10;
 }
 
-function cost(seconds: number, rate: number): number {
-  return Math.round((seconds / 3600) * rate * 100) / 100;
-}
-
 function localTimeOf(ms: number): string {
   const d = new Date(ms);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
-
-/** La columna de coste solo se incluye si hay una tarifa configurada. */
-function costColumn(opts: ExportOptions, width: number): Partial<ExcelJS.Column>[] {
-  return opts.hourlyRate > 0 ? [{ header: `Coste (${opts.currency})`, key: 'cost', width }] : [];
 }
 
 function styleHeader(ws: ExcelJS.Worksheet): void {
@@ -159,9 +148,6 @@ function buildResumen(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOption
     ['Commits detectados', total.commitCount],
     ['Hora pico', peak === null ? '-' : `${String(peak).padStart(2, '0')}:00`],
   ];
-  if (opts.hourlyRate > 0) {
-    kpis.push([`Coste estimado (${opts.currency})`, cost(total.activeSeconds, opts.hourlyRate), '#,##0.00']);
-  }
 
   let rowIdx = 5;
   for (const [label, value, fmt] of kpis) {
@@ -201,7 +187,6 @@ function buildProyectos(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOpti
     { header: 'En bloque (%)', key: 'bulkPct', width: 14 },
     { header: 'Editado fuera', key: 'ext', width: 13 },
     { header: 'Commits', key: 'commits', width: 10 },
-    ...costColumn(opts, 14),
   ];
   const byProject = groupRows(rows, (r) => r.projectPath);
   const entries = [...byProject.entries()].sort((a, b) => {
@@ -231,16 +216,12 @@ function buildProyectos(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOpti
       bulkPct: s.typedChars + s.bulkChars > 0 ? Math.round((s.bulkChars / (s.typedChars + s.bulkChars)) * 1000) / 10 : 0,
       ext: s.externalEdits,
       commits: s.commitCount,
-      cost: cost(s.activeSeconds, opts.hourlyRate),
     });
   }
   setColFmt(ws, ['hours', 'fg', 'bg', 'term', 'avg'], '0.00');
   setColFmt(ws, ['bulkPct'], '0.0');
   setColFmt(ws, ['dur'], DUR_FMT);
   setColFmt(ws, ['focus'], '0.0');
-  if (opts.hourlyRate > 0) {
-    setColFmt(ws, ['cost'], '#,##0.00');
-  }
   styleHeader(ws);
 }
 
@@ -265,7 +246,6 @@ function buildDiario(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOptions
     { header: 'En bloque (car.)', key: 'bulk', width: 16 },
     { header: 'Editado fuera', key: 'ext', width: 13 },
     { header: 'Commits', key: 'commits', width: 10 },
-    ...costColumn(opts, 13),
   ];
   for (const r of rows) {
     ws.addRow({
@@ -287,14 +267,10 @@ function buildDiario(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOptions
       bulk: r.bulkChars ?? 0,
       ext: r.externalEdits ?? 0,
       commits: r.commits?.length ?? 0,
-      cost: cost(r.activeSeconds, opts.hourlyRate),
     });
   }
   setColFmt(ws, ['hours'], '0.00');
   setColFmt(ws, ['dur', 'fg', 'bg', 'term'], DUR_FMT);
-  if (opts.hourlyRate > 0) {
-    setColFmt(ws, ['cost'], '#,##0.00');
-  }
   styleHeader(ws);
 }
 
@@ -318,7 +294,6 @@ function buildAgrupado(
     { header: 'Líneas -', key: 'deleted', width: 10 },
     { header: 'Netas', key: 'net', width: 9 },
     { header: 'Sesiones', key: 'sessions', width: 10 },
-    ...costColumn(opts, 13),
   ];
   const grouped = groupRows(rows, (r) => `${periodOf(r)}::${r.projectPath}`);
   const keys = [...grouped.keys()].sort();
@@ -336,14 +311,10 @@ function buildAgrupado(
       deleted: s.linesDeleted,
       net: s.netLines,
       sessions: s.sessionCount,
-      cost: cost(s.activeSeconds, opts.hourlyRate),
     });
   }
   setColFmt(ws, ['hours', 'avg'], '0.00');
   setColFmt(ws, ['dur'], DUR_FMT);
-  if (opts.hourlyRate > 0) {
-    setColFmt(ws, ['cost'], '#,##0.00');
-  }
   styleHeader(ws);
 }
 

@@ -31,8 +31,6 @@ import { languageBadge, languageStyle } from './languageIcons';
 import { DEFS } from './metricDefs';
 
 export interface DashboardOptions {
-  hourlyRate: number;
-  currency: string;
   /** Asistentes de IA instalados, para contextualizar la autoría. */
   assistants?: string[];
 }
@@ -143,15 +141,6 @@ export function renderHtml(rows: DayStats[], today: string, opts: DashboardOptio
     tarjeta(ICONS.balanza, 'azul', 'Consistencia', `${consistencia}/100`, DEFS.consistencia, 'últimos 30 días'),
     tarjeta(ICONS.diana, 'violeta', 'Hora pico', pico === null ? '—' : `${String(pico).padStart(2, '0')}:00`, DEFS.horaPico),
   ];
-  if (opts.hourlyRate > 0) {
-    const coste = (monthSecs / 3600) * opts.hourlyRate;
-    kpis.push(
-      tarjeta(ICONS.rayo, 'verde', 'Coste del mes', `${coste.toFixed(2).replace('.', ',')} ${esc(opts.currency)}`, {
-        nombre: 'Coste estimado',
-        calculo: `Horas activas del mes multiplicadas por la tarifa configurada (${opts.hourlyRate} ${esc(opts.currency)}/h).`,
-      })
-    );
-  }
 
   const cuerpo = `
     <div class="rejilla-kpis">${kpis.join('')}</div>
