@@ -31,18 +31,20 @@ describe('logotipos de lenguaje', () => {
     }
   });
 
-  it('dibuja el logotipo dentro de la pastilla con el color de marca', () => {
+  it('dibuja el logotipo suelto, pintado con el color de marca', () => {
     const html = languageBadge('typescript');
     assert.ok(html.includes('<svg'), 'debe dibujar el logotipo');
-    assert.ok(html.includes('#3178c6'), 'con el color oficial de fondo');
-    assert.ok(html.includes('TypeScript'), 'y el nombre como texto alternativo');
+    assert.ok(html.includes('fill="#3178c6"'), 'pintado con el color oficial');
+    assert.ok(!html.includes('background:'), 'sin recuadro de fondo');
+    assert.ok(html.includes('TypeScript'), 'con el nombre como texto alternativo');
     assert.ok(!html.includes('>TS<'), 'ya no debe mostrar iniciales');
   });
 
   it('los lenguajes sin logotipo caen en iniciales legibles', () => {
     const html = languageBadge('lenguaje-inexistente');
-    assert.ok(html.includes('sigla'), 'usa la pastilla con iniciales');
+    assert.ok(html.includes('sigla'), 'usa las iniciales');
     assert.ok(!html.includes('<svg'));
+    assert.ok(!html.includes('background:'), 'tampoco lleva recuadro');
   });
 
   it('cada lenguaje tiene su propio color, sin repeticiones confusas', () => {

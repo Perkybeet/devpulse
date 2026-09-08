@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.2
+
+- Los logotipos de los lenguajes se muestran sueltos y más grandes, sin el recuadro de color que los envolvía.
+
 ## 1.2.1
 
 - **Logotipos reales de los lenguajes** en lugar de iniciales: 64 lenguajes y tecnologías se identifican con su marca y su color oficial. Antes, lenguajes distintos podían compartir las mismas iniciales, como Docker Compose y Dotenv.

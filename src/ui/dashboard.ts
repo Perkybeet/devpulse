@@ -526,10 +526,10 @@ td.fuerte { font-weight: 650; }
 .mas { color: #22a87e; }
 .menos { color: #d16969; }
 .lista-lenguajes { background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-panel-border); border-radius: 9px; padding: 12px 14px; }
-.lenguaje { display: grid; grid-template-columns: 24px 140px 1fr 62px 42px; align-items: center; gap: 10px; padding: 5px 0; font-size: 12px; }
-.pastilla { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; box-shadow: inset 0 0 0 1px rgba(127,127,127,.25); }
-.pastilla svg { display: block; }
-.sigla { font-size: 9px; font-weight: 700; letter-spacing: .02em; }
+.lenguaje { display: grid; grid-template-columns: 22px 140px 1fr 62px 42px; align-items: center; gap: 11px; padding: 6px 0; font-size: 12px; }
+.marca-lenguaje { display: inline-grid; place-items: center; width: 22px; height: 22px; }
+.marca-lenguaje svg { display: block; }
+.sigla { font-size: 10px; font-weight: 700; letter-spacing: .02em; }
 .nombre-lenguaje { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .via { background: var(--vscode-panel-border); border-radius: 3px; height: 7px; overflow: hidden; }
 .relleno { display: block; height: 100%; border-radius: 3px; }

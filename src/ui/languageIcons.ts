@@ -118,17 +118,15 @@ export function contrastText(hex: string): string {
 }
 
 /**
- * Marca visual del lenguaje: su logotipo sobre el color de la marca, o las
- * iniciales cuando no hay logotipo.
+ * Logotipo del lenguaje en su color de marca, sin recuadro de fondo. Los
+ * lenguajes sin logotipo muestran sus iniciales en ese mismo color.
  */
 export function languageBadge(languageId: string): string {
   const e = languageStyle(languageId);
-  const tinta = contrastText(e.color);
-  const interior = e.path
-    ? `<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="${e.path}" fill="${tinta}"/></svg>`
-    : `<span class="sigla">${e.sigla.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>`;
-  return `<span class="pastilla" style="background:${e.color};color:${tinta}" title="${e.nombre.replace(
-    /"/g,
-    '&quot;'
-  )}">${interior}</span>`;
+  const nombre = e.nombre.replace(/"/g, '&quot;');
+  if (e.path) {
+    return `<span class="marca-lenguaje" title="${nombre}"><svg viewBox="0 0 24 24" width="20" height="20" role="img" aria-label="${nombre}"><path d="${e.path}" fill="${e.color}"/></svg></span>`;
+  }
+  const sigla = e.sigla.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  return `<span class="marca-lenguaje" title="${nombre}"><span class="sigla" style="color:${e.color}">${sigla}</span></span>`;
 }
