@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1
+
+- **Logotipos reales de los lenguajes** en lugar de iniciales: 64 lenguajes y tecnologías se identifican con su marca y su color oficial. Antes, lenguajes distintos podían compartir las mismas iniciales, como Docker Compose y Dotenv.
+- Las marcas casi negras, como la de Markdown, se aclaran automáticamente para no confundirse con el fondo del editor, y cada pastilla lleva un borde sutil que la separa del fondo.
+- Los lenguajes sin logotipo disponible siguen mostrando sus iniciales, de modo que la lista nunca queda con huecos.
+
 ## 1.2.0
 
 - **Modo servidor opcional**: la extensión puede enviar la actividad a una instalación propia de la organización. Desactivado de fábrica; sin configurarlo todo sigue siendo local.

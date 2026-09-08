@@ -1,13 +1,16 @@
+import { ICONOS_LENGUAJE } from './languageIcons.generated';
+
 /**
- * Identidad visual de cada lenguaje: su color oficial (el mismo que usa
- * GitHub) y una abreviatura corta. Se dibuja como una pastilla de color con
- * las iniciales en lugar de reproducir los logotipos, que son marcas
- * registradas y pesarían de más en el paquete.
+ * Identidad visual de cada lenguaje: su logotipo y su color de marca. Para
+ * los lenguajes sin logotipo disponible se recurre a una pastilla con las
+ * iniciales, de modo que la lista nunca queda con huecos.
  */
 export interface LanguageStyle {
   nombre: string;
   color: string;
   sigla: string;
+  /** Trazado del logotipo en un lienzo de 24x24, si lo hay. */
+  path?: string;
 }
 
 const LENGUAJES: Record<string, LanguageStyle> = {
@@ -56,6 +59,15 @@ const RESERVA: LanguageStyle = { nombre: 'Otro', color: '#8b98a9', sigla: '·' }
 
 export function languageStyle(languageId: string): LanguageStyle {
   const clave = (languageId ?? '').toLowerCase();
+  const conLogo = ICONOS_LENGUAJE[clave];
+  if (conLogo) {
+    return {
+      nombre: conLogo.nombre,
+      color: asegurarVisibilidad(conLogo.color),
+      sigla: LENGUAJES[clave]?.sigla ?? conLogo.nombre.slice(0, 2).toUpperCase(),
+      path: conLogo.path,
+    };
+  }
   const encontrado = LENGUAJES[clave];
   if (encontrado) {
     return encontrado;
@@ -64,6 +76,34 @@ export function languageStyle(languageId: string): LanguageStyle {
   const sigla = clave.slice(0, 2).toUpperCase() || RESERVA.sigla;
   const nombre = clave ? clave.charAt(0).toUpperCase() + clave.slice(1) : RESERVA.nombre;
   return { nombre, color: RESERVA.color, sigla };
+}
+
+/** Luminancia relativa según WCAG. */
+function luminancia(hex: string): number {
+  const limpio = hex.replace('#', '');
+  const canal = (i: number): number => {
+    const c = parseInt(limpio.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * canal(0) + 0.7152 * canal(2) + 0.0722 * canal(4);
+}
+
+/**
+ * Aclara las marcas casi negras (Markdown, por ejemplo) para que la pastilla
+ * no se funda con el fondo oscuro del editor, conservando su tono.
+ */
+export function asegurarVisibilidad(hex: string): string {
+  if (luminancia(hex) >= 0.045) {
+    return hex;
+  }
+  const limpio = hex.replace('#', '');
+  const mezclar = (i: number): string => {
+    const c = parseInt(limpio.slice(i, i + 2), 16);
+    return Math.round(c + (255 - c) * 0.42)
+      .toString(16)
+      .padStart(2, '0');
+  };
+  return `#${mezclar(0)}${mezclar(2)}${mezclar(4)}`;
 }
 
 /** Blanco o negro según el contraste con el color de fondo (fórmula WCAG). */
@@ -75,4 +115,20 @@ export function contrastText(hex: string): string {
   };
   const luminancia = 0.2126 * componente(0) + 0.7152 * componente(2) + 0.0722 * componente(4);
   return luminancia > 0.45 ? '#0d1219' : '#ffffff';
+}
+
+/**
+ * Marca visual del lenguaje: su logotipo sobre el color de la marca, o las
+ * iniciales cuando no hay logotipo.
+ */
+export function languageBadge(languageId: string): string {
+  const e = languageStyle(languageId);
+  const tinta = contrastText(e.color);
+  const interior = e.path
+    ? `<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="${e.path}" fill="${tinta}"/></svg>`
+    : `<span class="sigla">${e.sigla.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</span>`;
+  return `<span class="pastilla" style="background:${e.color};color:${tinta}" title="${e.nombre.replace(
+    /"/g,
+    '&quot;'
+  )}">${interior}</span>`;
 }
