@@ -152,6 +152,11 @@ function buildResumen(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOption
     ['Sesiones de foco (15 min o más)', focusSessionCount(rows)],
     ['Días con sesión de foco', daysWithFocusSession(rows)],
     ['Sesiones por día activo', Math.round(fragmentation(rows) * 10) / 10, '0.0'],
+    ['Caracteres tecleados', total.typedChars],
+    ['Caracteres en bloque (pegado, plantilla o asistente)', total.bulkChars],
+    ['Código en bloque (%)', total.typedChars + total.bulkChars > 0 ? Math.round((total.bulkChars / (total.typedChars + total.bulkChars)) * 1000) / 10 : 0, '0.0'],
+    ['Archivos editados fuera del editor', total.externalEdits],
+    ['Commits detectados', total.commitCount],
     ['Hora pico', peak === null ? '-' : `${String(peak).padStart(2, '0')}:00`],
   ];
   if (opts.hourlyRate > 0) {
@@ -191,6 +196,11 @@ function buildProyectos(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOpti
     { header: 'Netas', key: 'net', width: 10 },
     { header: 'Archivos', key: 'files', width: 10 },
     { header: 'Ratio foco (%)', key: 'focus', width: 14 },
+    { header: 'Tecleado (car.)', key: 'typed', width: 15 },
+    { header: 'En bloque (car.)', key: 'bulk', width: 16 },
+    { header: 'En bloque (%)', key: 'bulkPct', width: 14 },
+    { header: 'Editado fuera', key: 'ext', width: 13 },
+    { header: 'Commits', key: 'commits', width: 10 },
     ...costColumn(opts, 14),
   ];
   const byProject = groupRows(rows, (r) => r.projectPath);
@@ -216,10 +226,16 @@ function buildProyectos(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOpti
       net: s.netLines,
       files: s.uniqueFiles,
       focus: pct(s.focusRatio),
+      typed: s.typedChars,
+      bulk: s.bulkChars,
+      bulkPct: s.typedChars + s.bulkChars > 0 ? Math.round((s.bulkChars / (s.typedChars + s.bulkChars)) * 1000) / 10 : 0,
+      ext: s.externalEdits,
+      commits: s.commitCount,
       cost: cost(s.activeSeconds, opts.hourlyRate),
     });
   }
   setColFmt(ws, ['hours', 'fg', 'bg', 'term', 'avg'], '0.00');
+  setColFmt(ws, ['bulkPct'], '0.0');
   setColFmt(ws, ['dur'], DUR_FMT);
   setColFmt(ws, ['focus'], '0.0');
   if (opts.hourlyRate > 0) {
@@ -245,6 +261,10 @@ function buildDiario(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOptions
     { header: 'Guardados', key: 'saves', width: 11 },
     { header: 'Archivos', key: 'files', width: 10 },
     { header: 'Sesiones', key: 'sessions', width: 10 },
+    { header: 'Tecleado (car.)', key: 'typed', width: 15 },
+    { header: 'En bloque (car.)', key: 'bulk', width: 16 },
+    { header: 'Editado fuera', key: 'ext', width: 13 },
+    { header: 'Commits', key: 'commits', width: 10 },
     ...costColumn(opts, 13),
   ];
   for (const r of rows) {
@@ -263,6 +283,10 @@ function buildDiario(wb: ExcelJS.Workbook, rows: DayStats[], opts: ExportOptions
       saves: r.saves,
       files: r.filesTouched.length,
       sessions: r.sessions.length,
+      typed: r.typedChars ?? 0,
+      bulk: r.bulkChars ?? 0,
+      ext: r.externalEdits ?? 0,
+      commits: r.commits?.length ?? 0,
       cost: cost(r.activeSeconds, opts.hourlyRate),
     });
   }

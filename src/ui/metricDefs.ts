@@ -78,6 +78,44 @@ export const DEFS: Record<string, MetricDef> = {
     calculo: 'De 0 a 100 según lo parecidas que sean las dedicaciones diarias entre sí en los últimos 30 días.',
     matiz: 'Regularidad, no cantidad: dedicar poco todos los días puntúa alto.',
   },
+  autoria: {
+    nombre: 'Cómo llega el código',
+    calculo:
+      'Cada cambio del editor se clasifica por tamaño: uno a tres caracteres es tecleo; veinticuatro o más, o varias líneas de golpe, es una inserción en bloque (pegado, plantilla o sugerencia aceptada de un asistente).',
+    matiz:
+      'No afirma quién escribió el código, solo cómo entró. Una proporción alta en bloque con asistentes instalados indica trabajo delegado a la IA.',
+  },
+  tecleado: {
+    nombre: 'Tecleado',
+    calculo: 'Caracteres introducidos en cambios pequeños, propios de escribir a mano.',
+  },
+  bloque: {
+    nombre: 'En bloque',
+    calculo: 'Caracteres llegados en inserciones grandes: pegados, plantillas o sugerencias aceptadas.',
+  },
+  externo: {
+    nombre: 'Editado fuera del editor',
+    calculo:
+      'Archivos del proyecto modificados en disco sin estar abiertos en el editor: scripts, generadores o agentes de línea de comandos.',
+    matiz: 'Hace visible el trabajo delegado a herramientas, que de otro modo no dejaría rastro.',
+  },
+  commits: {
+    nombre: 'Commits',
+    calculo:
+      'Confirmaciones detectadas en los repositorios abiertos. Se guarda solo el hash abreviado y la hora: ni mensajes, ni ramas, ni autores.',
+    matiz:
+      'Es evidencia externa y verificable: el tiempo registrado se puede contrastar con lo que realmente se entregó.',
+  },
+  horasPorCommit: {
+    nombre: 'Horas por commit',
+    calculo: 'Tiempo activo total dividido entre el número de commits.',
+    matiz: 'Depende del estilo de trabajo: commits pequeños y frecuentes dan valores bajos sin que signifique nada malo.',
+  },
+  sinEntrega: {
+    nombre: 'Días largos sin entrega',
+    calculo: 'Días con dos horas o más de actividad y ningún commit.',
+    matiz: 'Investigar, diseñar o depurar sin confirmar cambios es normal; una racha larga sí merece una mirada.',
+  },
   horaPico: {
     nombre: 'Hora pico',
     calculo: 'Franja horaria con más tiempo activo acumulado.',

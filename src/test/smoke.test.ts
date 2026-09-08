@@ -149,6 +149,60 @@ describe('extensión empaquetada (humo)', function () {
     assert.ok(despues > antes, `el terminal debe acreditar tiempo activo (antes ${antes}, después ${despues})`);
   });
 
+  it('distingue lo tecleado de lo insertado en bloque', async () => {
+    const docUri = stub.Uri.file(path.join(wsPath, 'src', 'autoria.ts'));
+    const rango = { start: { line: 0 }, end: { line: 0 } };
+    const suma = (campo: string): number => leerDias(api.dataDir).reduce((a: number, d: any) => a + (d[campo] ?? 0), 0);
+    await api.flush();
+    const typedAntes = suma('typedChars');
+    const bulkAntes = suma('bulkChars');
+    const insercionesAntes = suma('bulkInsertions');
+    // Tecleo humano: un carácter por evento
+    for (const ch of 'let a = 1;') {
+      stub._emitters.docChange.fire({ document: { uri: docUri, languageId: 'typescript' }, contentChanges: [{ range: rango, text: ch }] });
+    }
+    // Sugerencia aceptada o pegado: un bloque de golpe
+    const bloque = 'export function total(xs: number[]): number {\n  return xs.reduce((a, b) => a + b, 0);\n}\n';
+    stub._emitters.docChange.fire({ document: { uri: docUri, languageId: 'typescript' }, contentChanges: [{ range: rango, text: bloque }] });
+    // Deshacer no cuenta como autoría
+    stub._emitters.docChange.fire({ document: { uri: docUri, languageId: 'typescript' }, reason: 1, contentChanges: [{ range: rango, text: 'texto que reaparece al deshacer y es largo' }] });
+    await sleep(120);
+    await api.flush();
+
+    assert.strictEqual(suma('typedChars') - typedAntes, 10, 'los 10 caracteres tecleados');
+    assert.strictEqual(suma('bulkChars') - bulkAntes, bloque.length, 'el bloque completo, sin el deshacer');
+    assert.strictEqual(suma('bulkInsertions') - insercionesAntes, 1);
+  });
+
+  it('cuenta los archivos modificados fuera del editor', async () => {
+    const cerrado = stub.Uri.file(path.join(wsPath, 'src', 'generado-por-agente.ts'));
+    const abierto = stub.Uri.file(path.join(wsPath, 'src', 'abierto.ts'));
+    const ignorado = stub.Uri.file(path.join(wsPath, 'node_modules', 'x', 'index.js'));
+    stub._abiertos.push({ uri: abierto });
+
+    await api.onCambioEnDisco(cerrado);
+    await api.onCambioEnDisco(cerrado); // el mismo archivo en menos de 2 s no se duplica
+    await api.onCambioEnDisco(abierto); // ya se cuenta por el documento
+    await api.onCambioEnDisco(ignorado);
+    await api.flush();
+
+    const externos = leerDias(api.dataDir).reduce((a: number, d: any) => a + (d.externalEdits ?? 0), 0);
+    assert.strictEqual(externos, 1);
+  });
+
+  it('registra los commits nuevos sin atribuir los antiguos', async () => {
+    await api.onRepositorio(stub._repo, true); // arranque: solo memoriza el HEAD
+    stub._repo.state.HEAD.commit = 'abc123def456789';
+    await api.onRepositorio(stub._repo, false);
+    await api.onRepositorio(stub._repo, false); // el mismo HEAD no repite
+    await api.flush();
+
+    const commits = leerDias(api.dataDir).flatMap((d: any) => d.commits ?? []);
+    assert.strictEqual(commits.length, 1);
+    assert.strictEqual(commits[0].hash, 'abc123def4');
+    assert.ok(commits[0].at > 0);
+  });
+
   it('exporta un Excel válido, firmado y con las 10 hojas', async () => {
     const xlsxPath = path.join(tmp, 'informe.xlsx');
     stub._setSavePath(xlsxPath);

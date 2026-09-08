@@ -4,7 +4,9 @@ import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { classifyChanges, detectAssistants } from './core/authorship';
 import { classifyRun, MAX_RUNS_PER_DAY, RunKind } from './core/feedbackLoops';
+import { GitLink, RepoLike } from './core/gitLink';
 import { countChanges } from './core/lineCounter';
 import { DayStats, localDateOf, localHourOf, MAX_FILES_PER_DAY, monthOfDate } from './core/model';
 import { ensureKeyPair, signRows, verifySidecar, writeSidecar } from './core/signing';
@@ -19,6 +21,11 @@ import { StatusBar } from './ui/statusBar';
 import { Clasificacion, ProjectClassifier } from './sync/classifier';
 import { Outbox } from './sync/outbox';
 import { enviarLatido } from './sync/uploader';
+
+interface GitApiLike {
+  repositories: (RepoLike & { state: { onDidChange(cb: () => void): vscode.Disposable } })[];
+  onDidOpenRepository(cb: (repo: RepoLike & { state: { onDidChange(cb: () => void): vscode.Disposable } }) => void): vscode.Disposable;
+}
 
 interface DevPulseConfig {
   idleTimeoutSeconds: number;
@@ -40,6 +47,8 @@ export interface TestApi {
   sincronizar(silencioso?: boolean): Promise<void>;
   classifier: ProjectClassifier;
   outbox: Outbox;
+  onCambioEnDisco(uri: vscode.Uri): Promise<void>;
+  onRepositorio(repo: RepoLike, primerContacto: boolean): Promise<void>;
 }
 
 function readConfig(): DevPulseConfig {
@@ -157,11 +166,25 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
     if (delta.added === 0 && delta.deleted === 0 && delta.chars === 0) {
       return;
     }
+    const esUndoRedo =
+      e.reason === vscode.TextDocumentChangeReason.Undo || e.reason === vscode.TextDocumentChangeReason.Redo;
+    const autoria = classifyChanges(
+      e.contentChanges.map((c) => ({
+        text: c.text,
+        removedLines: c.range.end.line - c.range.start.line,
+        isUndoRedo: esUndoRedo,
+      }))
+    );
     const rel = vscode.workspace.asRelativePath(e.document.uri, false);
     await storage.mutateDay(localDateOf(now), proj.name, proj.path, (d) => {
       d.linesAdded += delta.added;
       d.linesDeleted += delta.deleted;
       d.charsTyped += delta.chars;
+      d.typedChars = (d.typedChars ?? 0) + autoria.typedChars;
+      d.bulkChars = (d.bulkChars ?? 0) + autoria.bulkChars;
+      d.typedLines = (d.typedLines ?? 0) + autoria.typedLines;
+      d.bulkLines = (d.bulkLines ?? 0) + autoria.bulkLines;
+      d.bulkInsertions = (d.bulkInsertions ?? 0) + autoria.bulkInsertions;
       if (d.filesTouched.length < MAX_FILES_PER_DAY && !d.filesTouched.includes(rel)) {
         d.filesTouched.push(rel);
       }
@@ -194,6 +217,97 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
    * y ninguna otra extensión del mercado lo contabiliza.
    */
   let terminalesOcupados = 0;
+
+  /**
+   * Cambios en disco de archivos que no están abiertos en el editor: los hacen
+   * herramientas, scripts o agentes de línea de comandos. Se cuentan para que
+   * el trabajo delegado a ellos no quede invisible.
+   */
+  const RUTAS_IGNORADAS = /[\\/](node_modules|\.git|dist|out|build|\.next|target|vendor|__pycache__)[\\/]/;
+  const ultimoExterno = new Map<string, number>();
+  async function onCambioEnDisco(uri: vscode.Uri): Promise<void> {
+    if (uri.scheme !== 'file' || RUTAS_IGNORADAS.test(uri.fsPath)) {
+      return;
+    }
+    const abierto = vscode.workspace.textDocuments.some((d) => d.uri.fsPath === uri.fsPath);
+    if (abierto) {
+      return; // Ya se contabiliza a través de los cambios del documento.
+    }
+    const now = Date.now();
+    const previo = ultimoExterno.get(uri.fsPath) ?? 0;
+    if (now - previo < 2000) {
+      return;
+    }
+    ultimoExterno.set(uri.fsPath, now);
+    const folder = vscode.workspace.getWorkspaceFolder(uri);
+    if (!folder || config.excludedProjects.includes(folder.name)) {
+      return;
+    }
+    tracker.noteActivity(now);
+    await storage.mutateDay(localDateOf(now), folder.name, folder.uri.fsPath, (d) => {
+      d.externalEdits = (d.externalEdits ?? 0) + 1;
+    });
+  }
+
+  /** Asistentes de IA instalados, como contexto de los datos de autoría. */
+  function asistentesInstalados(): string[] {
+    return detectAssistants(vscode.extensions.all.map((x) => x.id));
+  }
+
+  /** Commits nuevos en los repositorios abiertos, atribuidos a su proyecto. */
+  const gitLink = new GitLink();
+  async function onRepositorio(repo: RepoLike, primerContacto: boolean): Promise<void> {
+    if (primerContacto) {
+      gitLink.prime(repo);
+      return;
+    }
+    const commit = gitLink.observe(repo, Date.now());
+    if (!commit) {
+      return;
+    }
+    const carpetas = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+    const ruta = GitLink.projectOf(repo.rootUri.fsPath, carpetas);
+    if (!ruta) {
+      return;
+    }
+    const folder = vscode.workspace.workspaceFolders?.find((f) => f.uri.fsPath === ruta);
+    if (!folder || config.excludedProjects.includes(folder.name)) {
+      return;
+    }
+    await storage.mutateDay(localDateOf(commit.at), folder.name, folder.uri.fsPath, (d) => {
+      if (!d.commits) {
+        d.commits = [];
+      }
+      if (!d.commits.some((c) => c.hash === commit.hash)) {
+        d.commits.push(commit);
+      }
+    });
+  }
+
+  async function conectarGit(): Promise<void> {
+    try {
+      const ext = vscode.extensions.getExtension<{ getAPI(v: number): GitApiLike }>('vscode.git');
+      if (!ext) {
+        return;
+      }
+      const exports = ext.isActive ? ext.exports : await ext.activate();
+      const api = exports?.getAPI?.(1);
+      if (!api) {
+        return;
+      }
+      const vigilar = (repo: RepoLike & { state: { onDidChange(cb: () => void): vscode.Disposable } }): void => {
+        void onRepositorio(repo, true);
+        context.subscriptions.push(repo.state.onDidChange(() => void onRepositorio(repo, false)));
+      };
+      for (const repo of api.repositories) {
+        vigilar(repo);
+      }
+      context.subscriptions.push(api.onDidOpenRepository((repo) => vigilar(repo)));
+    } catch {
+      // Sin extensión Git disponible: la correlación con commits queda desactivada.
+    }
+  }
+  void conectarGit();
 
   /** Registra una compilación, prueba o depuración ya terminada. */
   async function registrarEjecucion(kind: RunKind, ms: number, ok: boolean): Promise<void> {
@@ -523,6 +637,11 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
           saves: r.saves,
           languages: r.languages,
           runs: (r.runs ?? []).map((x) => ({ kind: x.kind, ms: x.ms, ok: x.ok })),
+          typedChars: r.typedChars ?? 0,
+          bulkChars: r.bulkChars ?? 0,
+          bulkInsertions: r.bulkInsertions ?? 0,
+          externalEdits: r.externalEdits ?? 0,
+          commits: (r.commits ?? []).map((c) => ({ hash: c.hash, at: c.at })),
         });
       }
     }
@@ -541,7 +660,7 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
     enviando = true;
     try {
       await prepararContadores();
-      const envio = outbox.construirEnvio(instanceIdFor(context), VERSION);
+      const envio = outbox.construirEnvio(instanceIdFor(context), VERSION, asistentesInstalados());
       if (!envio) {
         if (!silencioso) {
           void vscode.window.showInformationMessage('DevPulse: no hay nada pendiente de enviar.');
@@ -727,6 +846,11 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
       }
     }),
     vscode.workspace.onDidChangeTextDocument((e) => void onDocChange(e)),
+    (() => {
+      const w = vscode.workspace.createFileSystemWatcher('**/*', true, false, true);
+      w.onDidChange((uri) => void onCambioEnDisco(uri));
+      return w;
+    })(),
     vscode.workspace.onDidSaveTextDocument((doc) => void onSave(doc)),
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('devpulse')) {
@@ -736,7 +860,11 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
       }
     }),
     vscode.commands.registerCommand('devpulse.showDashboard', () =>
-      DashboardPanel.createOrShow(storage, () => ({ hourlyRate: config.hourlyRate, currency: config.currency }))
+      DashboardPanel.createOrShow(storage, () => ({
+        hourlyRate: config.hourlyRate,
+        currency: config.currency,
+        assistants: asistentesInstalados(),
+      }))
     ),
     vscode.commands.registerCommand('devpulse.exportExcel', () => cmdExportExcel()),
     vscode.commands.registerCommand('devpulse.exportCsv', () => cmdExportCsv()),
@@ -768,6 +896,8 @@ export function activate(context: vscode.ExtensionContext): { _test: TestApi } {
       sincronizar,
       classifier,
       outbox,
+      onCambioEnDisco,
+      onRepositorio,
     },
   };
 }

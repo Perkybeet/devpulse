@@ -21,6 +21,11 @@ export interface Summary {
   /** Primer plano / (primer plano + segundo plano). */
   attentionRatio: number;
   linesPerHour: number;
+  typedChars: number;
+  bulkChars: number;
+  bulkInsertions: number;
+  externalEdits: number;
+  commitCount: number;
 }
 
 /** Semana ISO 8601 en formato YYYY-Www (el año puede diferir del natural en los bordes). */
@@ -65,6 +70,11 @@ export function summarize(rows: DayStats[]): Summary {
     focusRatio: 0,
     attentionRatio: 0,
     linesPerHour: 0,
+    typedChars: 0,
+    bulkChars: 0,
+    bulkInsertions: 0,
+    externalEdits: 0,
+    commitCount: 0,
   };
   const files = new Set<string>();
   const activeDates = new Set<string>();
@@ -78,6 +88,11 @@ export function summarize(rows: DayStats[]): Summary {
     s.linesDeleted += r.linesDeleted;
     s.charsTyped += r.charsTyped;
     s.saves += r.saves;
+    s.typedChars += r.typedChars ?? 0;
+    s.bulkChars += r.bulkChars ?? 0;
+    s.bulkInsertions += r.bulkInsertions ?? 0;
+    s.externalEdits += r.externalEdits ?? 0;
+    s.commitCount += r.commits?.length ?? 0;
     if (r.activeSeconds > 0) {
       activeDates.add(r.date);
     }
@@ -296,4 +311,29 @@ export function allRuns(rows: DayStats[]): RunRecord[] {
     }
   }
   return out;
+}
+
+/** Commits de todas las filas, con la fecha del día al que se atribuyen. */
+export function allCommits(rows: DayStats[]): { hash: string; at: number; date: string; project: string }[] {
+  const out: { hash: string; at: number; date: string; project: string }[] = [];
+  for (const r of rows) {
+    for (const c of r.commits ?? []) {
+      out.push({ hash: c.hash, at: c.at, date: r.date, project: r.project });
+    }
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+
+/**
+ * Horas activas por commit: cuánto trabajo registrado hay detrás de cada
+ * entrega. Es el contraste con evidencia externa que ningún registro de
+ * tiempo puede fabricar: los commits viven en el repositorio.
+ */
+export function hoursPerCommit(rows: DayStats[]): number | null {
+  const commits = rows.reduce((a, r) => a + (r.commits?.length ?? 0), 0);
+  if (commits === 0) {
+    return null;
+  }
+  const secs = rows.reduce((a, r) => a + r.activeSeconds, 0);
+  return secs / 3600 / commits;
 }

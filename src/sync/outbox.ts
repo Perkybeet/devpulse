@@ -21,6 +21,11 @@ export interface ContadoresPendientes {
   saves: number;
   languages: Record<string, number>;
   runs: { kind: RunKind; ms: number; ok: boolean }[];
+  typedChars?: number;
+  bulkChars?: number;
+  bulkInsertions?: number;
+  externalEdits?: number;
+  commits?: { hash: string; at: number }[];
 }
 
 export interface EstadoOutbox {
@@ -101,6 +106,13 @@ export class Outbox {
     previo.linesDeleted = Math.max(previo.linesDeleted, c.linesDeleted);
     previo.charsTyped = Math.max(previo.charsTyped, c.charsTyped);
     previo.saves = Math.max(previo.saves, c.saves);
+    previo.typedChars = Math.max(previo.typedChars ?? 0, c.typedChars ?? 0);
+    previo.bulkChars = Math.max(previo.bulkChars ?? 0, c.bulkChars ?? 0);
+    previo.bulkInsertions = Math.max(previo.bulkInsertions ?? 0, c.bulkInsertions ?? 0);
+    previo.externalEdits = Math.max(previo.externalEdits ?? 0, c.externalEdits ?? 0);
+    if ((c.commits?.length ?? 0) > (previo.commits?.length ?? 0)) {
+      previo.commits = [...(c.commits ?? [])];
+    }
     for (const [lang, secs] of Object.entries(c.languages)) {
       previo.languages[lang] = Math.max(previo.languages[lang] ?? 0, secs);
     }
@@ -108,7 +120,7 @@ export class Outbox {
   }
 
   /** Convierte lo pendiente en el cuerpo que espera el servidor. */
-  construirEnvio(instanceId: string, clientVersion: string): {
+  construirEnvio(instanceId: string, clientVersion: string, assistants: string[] = []): {
     cuerpo: Record<string, unknown>;
     claves: string[];
   } | null {
@@ -142,6 +154,11 @@ export class Outbox {
         saves: c?.saves ?? 0,
         languages: c?.languages ?? {},
         runs: c?.runs ?? [],
+        typedChars: c?.typedChars ?? 0,
+        bulkChars: c?.bulkChars ?? 0,
+        bulkInsertions: c?.bulkInsertions ?? 0,
+        externalEdits: c?.externalEdits ?? 0,
+        commits: c?.commits ?? [],
       };
     });
 
@@ -159,11 +176,16 @@ export class Outbox {
           saves: c.saves,
           languages: c.languages,
           runs: c.runs,
+          typedChars: c.typedChars ?? 0,
+          bulkChars: c.bulkChars ?? 0,
+          bulkInsertions: c.bulkInsertions ?? 0,
+          externalEdits: c.externalEdits ?? 0,
+          commits: c.commits ?? [],
         });
       }
     }
 
-    return { cuerpo: { instanceId, clientVersion, projects: proyectos }, claves };
+    return { cuerpo: { instanceId, clientVersion, assistants, projects: proyectos }, claves };
   }
 
   /** Elimina los minutos ya confirmados por el servidor. */

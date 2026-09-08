@@ -40,6 +40,9 @@ export function createVscodeStub(opts: StubOptions): any {
     docChange: new Emitter<any>(),
     docSave: new Emitter<any>(),
     configChange: new Emitter<any>(),
+    fsChange: new Emitter<any>(),
+    repoChange: new Emitter<any>(),
+    repoOpen: new Emitter<any>(),
   };
   const registeredCommands = new Map<string, (...args: any[]) => any>();
   const messages: string[] = [];
@@ -77,6 +80,23 @@ export function createVscodeStub(opts: StubOptions): any {
     },
 
     StatusBarAlignment: { Left: 1, Right: 2 },
+    TextDocumentChangeReason: { Undo: 1, Redo: 2 },
+    _repo: { rootUri: Uri.file(opts.workspacePath), state: { HEAD: { commit: 'inicial0000' }, onDidChange: emitters.repoChange.event } },
+    _abiertos: [] as any[],
+    extensions: {
+      all: [{ id: 'ms-python.python' }, { id: 'GitHub.copilot' }],
+      getExtension: (id: string) => {
+        if (id !== 'vscode.git') {
+          return undefined;
+        }
+        return {
+          isActive: true,
+          exports: {
+            getAPI: () => ({ repositories: [stub._repo], onDidOpenRepository: emitters.repoOpen.event }),
+          },
+        };
+      },
+    },
     ProgressLocation: { Notification: 15 },
     ViewColumn: { One: 1 },
     Uri,
@@ -137,6 +157,10 @@ export function createVscodeStub(opts: StubOptions): any {
       getWorkspaceFolder: (uri: any) =>
         String(uri.fsPath).startsWith(opts.workspacePath) ? wsFolder : undefined,
       asRelativePath: (uri: any) => pathMod.relative(opts.workspacePath, uri.fsPath),
+      get textDocuments() {
+        return stub._abiertos;
+      },
+      createFileSystemWatcher: () => ({ onDidChange: emitters.fsChange.event, dispose(): void {} }),
       getConfiguration: () => ({
         get: (key: string, def: unknown) =>
           opts.configOverrides && key in opts.configOverrides ? opts.configOverrides[key] : def,

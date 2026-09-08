@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0
+
+- **Cómo llega el código**: se distingue lo tecleado de lo insertado en bloque (pegado, plantillas o sugerencias aceptadas de un asistente), con la proporción de cada parte y los asistentes de IA instalados como contexto. No afirma quién escribió: dice cómo entró el texto.
+- **Editado fuera del editor**: se cuentan los archivos del proyecto modificados en disco sin estar abiertos, que es el rastro que dejan scripts y agentes de línea de comandos.
+- **Entregas**: los commits de los repositorios abiertos se registran (solo hash abreviado y hora) para contrastar el tiempo con trabajo verificable. Horas por commit y días largos sin entrega.
+- El Excel incorpora autoría, ediciones externas y commits en Proyectos, Diario y Resumen.
+- En modo servidor se envían también autoría, ejecuciones, commits y asistentes detectados; el servidor los usa para el detalle por persona y la detección de patrones anómalos.
+
 ## 1.2.2
 
 - Los logotipos de los lenguajes se muestran sueltos y más grandes, sin el recuadro de color que los envolvía.

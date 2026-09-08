@@ -33,6 +33,16 @@ export function mergeDay(dst: DayStats, src: DayStats): void {
     dst.hourly[h] += src.hourly[h] ?? 0;
   }
   dst.sessions.push(...src.sessions);
+  dst.typedChars = (dst.typedChars ?? 0) + (src.typedChars ?? 0);
+  dst.bulkChars = (dst.bulkChars ?? 0) + (src.bulkChars ?? 0);
+  dst.typedLines = (dst.typedLines ?? 0) + (src.typedLines ?? 0);
+  dst.bulkLines = (dst.bulkLines ?? 0) + (src.bulkLines ?? 0);
+  dst.bulkInsertions = (dst.bulkInsertions ?? 0) + (src.bulkInsertions ?? 0);
+  dst.externalEdits = (dst.externalEdits ?? 0) + (src.externalEdits ?? 0);
+  if (src.commits) {
+    const vistos = new Set((dst.commits ?? []).map((c) => c.hash));
+    dst.commits = [...(dst.commits ?? []), ...src.commits.filter((c) => !vistos.has(c.hash))];
+  }
   if (src.runs) {
     dst.runs = [...(dst.runs ?? []), ...src.runs].slice(-MAX_RUNS_PER_DAY);
   }

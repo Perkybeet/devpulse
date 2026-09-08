@@ -2,8 +2,10 @@ import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 import { RunKind, statsDe, tiempoDeEspera } from '../core/feedbackLoops';
 import { DayStats, localDateOf } from '../core/model';
+import { bulkRatio } from '../core/authorship';
 import {
   addDays,
+  allCommits,
   allRuns,
   consistencyScore,
   dailySeries,
@@ -14,6 +16,7 @@ import {
   fragmentation,
   groupRows,
   hourlyTotals,
+  hoursPerCommit,
   isoWeekOf,
   languageTotals,
   linearTrend,
@@ -30,6 +33,8 @@ import { DEFS } from './metricDefs';
 export interface DashboardOptions {
   hourlyRate: number;
   currency: string;
+  /** Asistentes de IA instalados, para contextualizar la autoría. */
+  assistants?: string[];
 }
 
 export class DashboardPanel {
@@ -175,6 +180,12 @@ export function renderHtml(rows: DayStats[], today: string, opts: DashboardOptio
           ${tarjeta(ICONS.aviso, 'violeta', 'Tasa de fallo', `${Math.round(statsDe(runs).tasaFallo * 100)} %`, DEFS.tasaFallo, `${statsDe(runs).fallos} de ${runs.length}`)}
         </div>`}
 
+    ${seccion(ICONS.codigo, 'Cómo llega el código', DEFS.autoria)}
+    ${seccionAutoria(total, opts.assistants ?? [])}
+
+    ${seccion(ICONS.rayo, 'Entregas', DEFS.commits)}
+    ${seccionCommits(rows, today)}
+
     ${seccion(ICONS.calendario, 'Cuándo trabajas', {
       nombre: 'Mapa de actividad',
       calculo: 'Tiempo activo acumulado por día de la semana y hora, en los últimos 90 días.',
@@ -260,6 +271,74 @@ function tarjetaEjecucion(
 ): string {
   const apoyo = s.total > 0 ? `${s.total} ejecuciones · p90 ${ms(s.p90ms)}` : 'sin datos';
   return tarjeta(icono, color, etiqueta, s.total > 0 ? ms(s.p50ms) : '—', def, apoyo);
+}
+
+function seccionAutoria(
+  total: ReturnType<typeof summarize>,
+  assistants: string[]
+): string {
+  const totalChars = total.typedChars + total.bulkChars;
+  if (totalChars === 0 && total.externalEdits === 0) {
+    return '<p class="vacio">Aún no hay ediciones registradas.</p>';
+  }
+  const ratio = bulkRatio(total);
+  const pctBloque = Math.round(ratio * 100);
+  const pctTecleado = 100 - pctBloque;
+  const barra = `<div class="reparto" role="img" aria-label="Tecleado ${pctTecleado} por ciento, en bloque ${pctBloque} por ciento">
+    <span class="tramo tramo-tecleado" style="width:${pctTecleado}%"><title>Tecleado: ${pctTecleado} %</title></span>
+    <span class="tramo tramo-bloque" style="width:${pctBloque}%"><title>En bloque: ${pctBloque} %</title></span>
+  </div>
+  <div class="leyenda"><span class="punto punto-tecleado"></span> tecleado ${pctTecleado} % <span class="punto punto-bloque"></span> en bloque ${pctBloque} %</div>`;
+  const contexto =
+    assistants.length > 0
+      ? `Asistentes instalados: ${assistants.map(esc).join(', ')}`
+      : 'Sin asistentes de IA detectados en este editor';
+  return `<div class="rejilla-kpis">
+      ${tarjeta(ICONS.codigo, 'verde', 'Tecleado', formatoMiles(total.typedChars), DEFS.tecleado, 'caracteres a mano')}
+      ${tarjeta(ICONS.rayo, 'azul', 'En bloque', formatoMiles(total.bulkChars), DEFS.bloque, `${total.bulkInsertions} inserciones`)}
+      ${tarjeta(ICONS.terminal, 'ambar', 'Editado fuera', String(total.externalEdits), DEFS.externo, 'archivos cambiados en disco')}
+      ${tarjeta(ICONS.diana, 'violeta', 'Proporción en bloque', `${pctBloque} %`, DEFS.autoria, contexto)}
+    </div>
+    <div class="figura">${barra}</div>`;
+}
+
+function seccionCommits(rows: DayStats[], today: string): string {
+  const commits = allCommits(rows);
+  if (commits.length === 0) {
+    return '<p class="vacio">Sin commits detectados todavía. Se registran automáticamente al confirmar cambios en los repositorios abiertos.</p>';
+  }
+  const porHora = hoursPerCommit(rows);
+  const serie = dailySeries(rows, 30, today);
+  const commitsPorDia = new Map<string, number>();
+  for (const c of commits) {
+    commitsPorDia.set(c.date, (commitsPorDia.get(c.date) ?? 0) + 1);
+  }
+  const ultimos30 = serie.reduce((a, p) => a + (commitsPorDia.get(p.date) ?? 0), 0);
+  const diasConCommit = serie.filter((p) => (commitsPorDia.get(p.date) ?? 0) > 0).length;
+  const diasActivos30 = serie.filter((p) => p.seconds > 0).length;
+  const sinEntrega = serie.filter((p) => p.seconds >= 2 * 3600 && !(commitsPorDia.get(p.date) ?? 0)).length;
+
+  const puntos = serie
+    .map((p) => {
+      const n = commitsPorDia.get(p.date) ?? 0;
+      if (n === 0) {
+        return '';
+      }
+      return `<span class="marca-commit" title="${fmtShortDate(p.date)}: ${n} commit${n === 1 ? '' : 's'} · ${fmtHM(p.seconds)} activas">${n}</span>`;
+    })
+    .join('');
+
+  return `<div class="rejilla-kpis">
+      ${tarjeta(ICONS.rayo, 'verde', 'Commits (30 días)', String(ultimos30), DEFS.commits, `${diasConCommit} de ${diasActivos30} días activos con entrega`)}
+      ${tarjeta(ICONS.reloj, 'azul', 'Horas por commit', porHora === null ? '—' : porHora.toFixed(1).replace('.', ','), DEFS.horasPorCommit, 'tiempo activo entre entregas')}
+      ${tarjeta(ICONS.aviso, 'ambar', 'Días largos sin entrega', String(sinEntrega), DEFS.sinEntrega, '2 h o más sin ningún commit')}
+      ${tarjeta(ICONS.grafico, 'violeta', 'Total registrado', String(commits.length), DEFS.commits, 'desde que se instaló')}
+    </div>
+    ${puntos ? `<div class="figura tira-commits">${puntos}</div>` : ''}`;
+}
+
+function formatoMiles(n: number): string {
+  return n.toLocaleString('es-ES');
 }
 
 function graficoBarras(serie: { date: string; seconds: number }[], tendencia: number): string {
@@ -537,6 +616,15 @@ td.fuerte { font-weight: 650; }
 .pct { text-align: right; color: var(--vscode-descriptionForeground); font-variant-numeric: tabular-nums; }
 .mas-lenguajes { font-size: 11px; color: var(--vscode-descriptionForeground); padding-top: 6px; }
 .vacio { color: var(--vscode-descriptionForeground); padding: 18px 0; }
+.reparto { display: flex; height: 12px; border-radius: 6px; overflow: hidden; gap: 2px; }
+.tramo { display: block; height: 100%; }
+.tramo-tecleado { background: #22a87e; }
+.tramo-bloque { background: #3d8ee0; }
+.punto { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 4px 0 10px; }
+.punto-tecleado { background: #22a87e; margin-left: 0; }
+.punto-bloque { background: #3d8ee0; }
+.tira-commits { display: flex; flex-wrap: wrap; gap: 6px; }
+.marca-commit { display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 6px; border-radius: 6px; background: rgba(34,168,126,.16); color: #22a87e; font-size: 11px; font-weight: 600; cursor: default; }
 .vacio-inicial { text-align: center; padding: 80px 20px; max-width: 460px; margin: 0 auto; }
 .vacio-inicial h2 { font-size: 17px; margin: 14px 0 8px; }
 .vacio-inicial p { color: var(--vscode-descriptionForeground); line-height: 1.6; }

@@ -32,6 +32,24 @@ export interface DayStats {
   sessions: SessionRecord[];
   /** Compilaciones, pruebas y depuraciones ejecutadas ese día. */
   runs: RunRecord[];
+  /** Caracteres escritos a mano. */
+  typedChars: number;
+  /** Caracteres llegados en bloque: pegados, plantillas o sugerencias aceptadas. */
+  bulkChars: number;
+  typedLines: number;
+  bulkLines: number;
+  bulkInsertions: number;
+  /** Archivos del proyecto modificados fuera del editor (herramientas, agentes, scripts). */
+  externalEdits: number;
+  /** Commits detectados en los repositorios del proyecto. */
+  commits: CommitRecord[];
+}
+
+export interface CommitRecord {
+  /** Hash abreviado. */
+  hash: string;
+  /** Momento del commit en epoch ms. */
+  at: number;
 }
 
 export const MAX_FILES_PER_DAY = 500;
@@ -54,6 +72,13 @@ export function emptyDayStats(date: string, project: string, projectPath: string
     hourly: new Array(24).fill(0),
     sessions: [],
     runs: [],
+    typedChars: 0,
+    bulkChars: 0,
+    typedLines: 0,
+    bulkLines: 0,
+    bulkInsertions: 0,
+    externalEdits: 0,
+    commits: [],
   };
 }
 

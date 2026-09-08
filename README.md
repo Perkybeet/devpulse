@@ -12,6 +12,8 @@ Registro automático y verificable del tiempo de desarrollo en VS Code. DevPulse
 - **Archivos únicos editados** y **tiempo por lenguaje**.
 - **Sesiones de trabajo y concentración**: bloques continuos de actividad. Se informa del **número de sesiones de foco** (15 minutos o más) y del **porcentaje de días con al menos una**, no de "horas de foco": son los dos indicadores con validación publicada frente a la concentración percibida, mientras que el total de horas no predice nada.
 - **Compilaciones y pruebas**: cuánto tardan (mediana y percentil 90, no media), con qué frecuencia fallan y cuánto tiempo se pierde esperándolas. Mide el proyecto, no a la persona: si empeora, hay algo que arreglar.
+- **Cómo llega el código**: qué parte se teclea y qué parte entra en bloque (pegado, plantillas o sugerencias aceptadas de un asistente), junto con los asistentes de IA instalados. También cuenta los archivos modificados fuera del editor por scripts o agentes. No afirma quién escribió el código: dice cómo llegó.
+- **Entregas**: los commits de los repositorios abiertos, guardando solo el hash abreviado y la hora, para contrastar el tiempo registrado con trabajo real y verificable.
 - **Histograma por hora del día** (horas pico), por día de la semana, y agregados diarios, semanales (ISO), mensuales y totales.
 - **Indicadores derivados**: media por día activo, media semanal y mensual, rachas de días consecutivos, índice de consistencia, tendencia (media móvil exponencial y regresión lineal), ratio de foco y coste estimado según tarifa/hora.
 
